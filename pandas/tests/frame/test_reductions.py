@@ -1,5 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
+import re
 
 from dateutil.tz import tzlocal
 import numpy as np
@@ -788,6 +789,10 @@ class TestDataFrameAnalytics:
         # GH#37392
         tdi = pd.timedelta_range("1 Day", periods=10)
         df = DataFrame({"A": tdi, "B": tdi})
+        # Copy is needed for ArrayManager case, otherwise setting df.iloc
+        #  below edits tdi, alterting both df['A'] and df['B']
+        #  FIXME: passing copy=True to constructor does not fix this
+        df = df.copy()
         df.iloc[-2, -1] = pd.NaT
 
         result = df.std(skipna=False)
@@ -811,35 +816,36 @@ class TestDataFrameAnalytics:
         assert len(axis1) == 0
 
     @pytest.mark.parametrize("method, unit", [("sum", 0), ("prod", 1)])
-    def test_sum_prod_nanops(self, method, unit):
+    @pytest.mark.parametrize("numeric_only", [None, True, False])
+    def test_sum_prod_nanops(self, method, unit, numeric_only):
         idx = ["a", "b", "c"]
         df = DataFrame({"a": [unit, unit], "b": [unit, np.nan], "c": [np.nan, np.nan]})
         # The default
-        result = getattr(df, method)()
+        result = getattr(df, method)(numeric_only=numeric_only)
         expected = Series([unit, unit, unit], index=idx, dtype="float64")
         tm.assert_series_equal(result, expected)
 
         # min_count=1
-        result = getattr(df, method)(min_count=1)
+        result = getattr(df, method)(numeric_only=numeric_only, min_count=1)
         expected = Series([unit, unit, np.nan], index=idx)
         tm.assert_series_equal(result, expected)
 
         # min_count=0
-        result = getattr(df, method)(min_count=0)
+        result = getattr(df, method)(numeric_only=numeric_only, min_count=0)
         expected = Series([unit, unit, unit], index=idx, dtype="float64")
         tm.assert_series_equal(result, expected)
 
-        result = getattr(df.iloc[1:], method)(min_count=1)
+        result = getattr(df.iloc[1:], method)(numeric_only=numeric_only, min_count=1)
         expected = Series([unit, np.nan, np.nan], index=idx)
         tm.assert_series_equal(result, expected)
 
         # min_count > 1
         df = DataFrame({"A": [unit] * 10, "B": [unit] * 5 + [np.nan] * 5})
-        result = getattr(df, method)(min_count=5)
+        result = getattr(df, method)(numeric_only=numeric_only, min_count=5)
         expected = Series(result, index=["A", "B"])
         tm.assert_series_equal(result, expected)
 
-        result = getattr(df, method)(min_count=6)
+        result = getattr(df, method)(numeric_only=numeric_only, min_count=6)
         expected = Series(result, index=["A", "B"])
         tm.assert_series_equal(result, expected)
 
@@ -1015,7 +1021,9 @@ class TestDataFrameAnalytics:
         # don't cast to object, which would raise in nanops
         dti = date_range("2016-01-01", periods=3)
 
-        df = DataFrame({1: [0, 2, 1], 2: range(3)[::-1], 3: dti})
+        # Copying dti is needed for ArrayManager otherwise when we set
+        #  df.loc[0, 3] = pd.NaT below it edits dti
+        df = DataFrame({1: [0, 2, 1], 2: range(3)[::-1], 3: dti.copy(deep=True)})
 
         result = df.idxmax()
         expected = Series([1, 0, 2], index=[1, 2, 3])
@@ -1065,13 +1073,17 @@ class TestDataFrameAnalytics:
         result = getattr(df, op)()
         expected = DataFrame(
             {"value": expected_value},
-            index=Index([100, 200], dtype="object", name="ID"),
+            index=Index([100, 200], name="ID"),
         )
         tm.assert_frame_equal(result, expected)
 
     def test_idxmax_dt64_multicolumn_axis1(self):
         dti = date_range("2016-01-01", periods=3)
         df = DataFrame({3: dti, 4: dti[::-1]})
+        # FIXME: copy needed for ArrayManager, otherwise setting with iloc
+        #  below also sets df.iloc[-1, 1]; passing copy=True to DataFrame
+        #  does not solve this.
+        df = df.copy()
         df.iloc[0, 0] = pd.NaT
 
         df._consolidate_inplace()
@@ -1364,11 +1376,9 @@ class TestDataFrameReductions:
         # GH#36907
         tz = tz_naive_fixture
         if isinstance(tz, tzlocal) and is_platform_windows():
-            request.node.add_marker(
-                pytest.mark.xfail(
-                    reason="GH#37659 OSError raised within tzlocal bc Windows "
-                    "chokes in times before 1970-01-01"
-                )
+            pytest.skip(
+                "GH#37659 OSError raised within tzlocal bc Windows "
+                "chokes in times before 1970-01-01"
             )
 
         df = DataFrame(
@@ -1684,8 +1694,50 @@ def test_minmax_extensionarray(method, numeric_only):
     tm.assert_series_equal(result, expected)
 
 
+def test_mad_nullable_integer(any_signed_int_ea_dtype):
+    # GH#33036
+    df = DataFrame(np.random.randn(100, 4).astype(np.int64))
+    df2 = df.astype(any_signed_int_ea_dtype)
+
+    result = df2.mad()
+    expected = df.mad()
+    tm.assert_series_equal(result, expected)
+
+    result = df2.mad(axis=1)
+    expected = df.mad(axis=1)
+    tm.assert_series_equal(result, expected)
+
+    # case with NAs present
+    df2.iloc[::2, 1] = pd.NA
+
+    result = df2.mad()
+    expected = df.mad()
+    expected[1] = df.iloc[1::2, 1].mad()
+    tm.assert_series_equal(result, expected)
+
+    result = df2.mad(axis=1)
+    expected = df.mad(axis=1)
+    expected[::2] = df.T.loc[[0, 2, 3], ::2].mad()
+    tm.assert_series_equal(result, expected)
+
+
+@pytest.mark.xfail(reason="GH#42895 caused by lack of 2D EA")
+def test_mad_nullable_integer_all_na(any_signed_int_ea_dtype):
+    # GH#33036
+    df = DataFrame(np.random.randn(100, 4).astype(np.int64))
+    df2 = df.astype(any_signed_int_ea_dtype)
+
+    # case with all-NA row/column
+    df2.iloc[:, 1] = pd.NA  # FIXME(GH#44199): this doesn't operate in-place
+    df2.iloc[:, 1] = pd.array([pd.NA] * len(df2), dtype=any_signed_int_ea_dtype)
+    result = df2.mad()
+    expected = df.mad()
+    expected[1] = pd.NA
+    tm.assert_series_equal(result, expected)
+
+
 @pytest.mark.parametrize("meth", ["max", "min", "sum", "mean", "median"])
-def test_groupy_regular_arithmetic_equivalent(meth):
+def test_groupby_regular_arithmetic_equivalent(meth):
     # GH#40660
     df = DataFrame(
         {"a": [pd.Timedelta(hours=6), pd.Timedelta(hours=7)], "b": [12.1, 13.3]}
@@ -1708,3 +1760,16 @@ def test_frame_mixed_numeric_object_with_timestamp(ts_value):
         result = df.sum()
     expected = Series([1, 1.1, "foo"], index=list("abc"))
     tm.assert_series_equal(result, expected)
+
+
+def test_prod_sum_min_count_mixed_object():
+    # https://github.com/pandas-dev/pandas/issues/41074
+    df = DataFrame([1, "a", True])
+
+    result = df.prod(axis=0, min_count=1, numeric_only=False)
+    expected = Series(["a"])
+    tm.assert_series_equal(result, expected)
+
+    msg = re.escape("unsupported operand type(s) for +: 'int' and 'str'")
+    with pytest.raises(TypeError, match=msg):
+        df.sum(axis=0, min_count=1, numeric_only=False)

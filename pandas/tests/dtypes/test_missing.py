@@ -18,12 +18,14 @@ from pandas.core.dtypes.common import (
     is_scalar,
 )
 from pandas.core.dtypes.dtypes import (
+    CategoricalDtype,
     DatetimeTZDtype,
     IntervalDtype,
     PeriodDtype,
 )
 from pandas.core.dtypes.missing import (
     array_equivalent,
+    is_valid_na_for_dtype,
     isna,
     isnull,
     na_value_for_dtype,
@@ -34,13 +36,13 @@ from pandas.core.dtypes.missing import (
 import pandas as pd
 from pandas import (
     DatetimeIndex,
-    Float64Index,
     NaT,
     Series,
     TimedeltaIndex,
     date_range,
 )
 import pandas._testing as tm
+from pandas.core.api import Float64Index
 
 now = pd.Timestamp.now()
 utcnow = pd.Timestamp.now("UTC")
@@ -729,3 +731,20 @@ class TestLibMissing:
 
         assert libmissing.is_matching_na(None, np.nan, nan_matches_none=True)
         assert libmissing.is_matching_na(np.nan, None, nan_matches_none=True)
+
+
+class TestIsValidNAForDtype:
+    def test_is_valid_na_for_dtype_interval(self):
+        dtype = IntervalDtype("int64", "left")
+        assert not is_valid_na_for_dtype(NaT, dtype)
+
+        dtype = IntervalDtype("datetime64[ns]", "both")
+        assert not is_valid_na_for_dtype(NaT, dtype)
+
+    def test_is_valid_na_for_dtype_categorical(self):
+        dtype = CategoricalDtype(categories=[0, 1, 2])
+        assert is_valid_na_for_dtype(np.nan, dtype)
+
+        assert not is_valid_na_for_dtype(NaT, dtype)
+        assert not is_valid_na_for_dtype(np.datetime64("NaT", "ns"), dtype)
+        assert not is_valid_na_for_dtype(np.timedelta64("NaT", "ns"), dtype)

@@ -12,6 +12,7 @@ from typing import (
     Iterable,
     Sequence,
     cast,
+    final,
 )
 import warnings
 
@@ -23,14 +24,15 @@ import pandas._libs.parsers as parsers
 from pandas._libs.parsers import STR_NA_VALUES
 from pandas._libs.tslibs import parsing
 from pandas._typing import (
+    ArrayLike,
     DtypeArg,
     FilePathOrBuffer,
-    final,
 )
 from pandas.errors import (
     ParserError,
     ParserWarning,
 )
+from pandas.util._exceptions import find_stack_level
 
 from pandas.core.dtypes.cast import astype_nansafe
 from pandas.core.dtypes.common import (
@@ -103,13 +105,15 @@ parser_defaults = {
     "chunksize": None,
     "verbose": False,
     "encoding": None,
-    "squeeze": False,
+    "squeeze": None,
     "compression": None,
     "mangle_dupe_cols": True,
     "infer_datetime_format": False,
     "skip_blank_lines": True,
     "encoding_errors": "strict",
     "on_bad_lines": "error",
+    "error_bad_lines": None,
+    "warn_bad_lines": None,
 }
 
 
@@ -256,7 +260,8 @@ class ParserBase:
             # ParseDates = Union[DateGroups, List[DateGroups],
             #     Dict[ColReference, DateGroups]]
             cols_needed = itertools.chain.from_iterable(
-                col if is_list_like(col) else [col] for col in self.parse_dates
+                col if is_list_like(col) and not isinstance(col, tuple) else [col]
+                for col in self.parse_dates
             )
         else:
             cols_needed = []
@@ -311,14 +316,14 @@ class ParserBase:
 
     @final
     def _extract_multi_indexer_columns(
-        self, header, index_names, col_names, passed_names: bool = False
+        self, header, index_names, passed_names: bool = False
     ):
         """
         extract and return the names, index_names, col_names
         header is a list-of-lists returned from the parsers
         """
         if len(header) < 2:
-            return header[0], index_names, col_names, passed_names
+            return header[0], index_names, None, passed_names
 
         # the names are the tuples of the header that are not the index cols
         # 0 is the name of the index, assuming index_col is a list of column
@@ -340,6 +345,10 @@ class ParserBase:
         # extract the columns
         field_count = len(header[0])
 
+        # check if header lengths are equal
+        if not all(len(header_iter) == field_count for header_iter in header[1:]):
+            raise ParserError("Header rows must have an equal number of columns.")
+
         def extract(r):
             return tuple(r[i] for i in range(field_count) if i not in sic)
 
@@ -350,7 +359,7 @@ class ParserBase:
         # level, then our header was too long.
         for n in range(len(columns[0])):
             if all(ensure_str(col[n]) in self.unnamed_cols for col in columns):
-                header = ",".join(str(x) for x in self.header)
+                header = ",".join([str(x) for x in self.header])
                 raise ParserError(
                     f"Passed header=[{header}] are too many rows "
                     "for this multi_index of columns"
@@ -548,10 +557,10 @@ class ParserBase:
                     warnings.warn(
                         (
                             "Both a converter and dtype were specified "
-                            f"for column {c} - only the converter will be used"
+                            f"for column {c} - only the converter will be used."
                         ),
                         ParserWarning,
-                        stacklevel=7,
+                        stacklevel=find_stack_level(),
                     )
 
                 try:
@@ -706,13 +715,13 @@ class ParserBase:
                 # e.g. encountering datetime string gets ValueError
                 #  TypeError can be raised in floatify
                 result = values
-                na_count = parsers.sanitize_objects(result, na_values, False)
+                na_count = parsers.sanitize_objects(result, na_values)
             else:
                 na_count = isna(result).sum()
         else:
             result = values
             if values.dtype == np.object_:
-                na_count = parsers.sanitize_objects(values, na_values, False)
+                na_count = parsers.sanitize_objects(values, na_values)
 
         if result.dtype == np.object_ and try_num_bool:
             result, _ = libops.maybe_convert_bool(
@@ -802,6 +811,29 @@ class ParserBase:
             )
 
         return names, data
+
+    def _check_data_length(self, columns: list[str], data: list[ArrayLike]) -> None:
+        """Checks if length of data is equal to length of column names.
+
+        One set of trailing commas is allowed. self.index_col not False
+        results in a ParserError previously when lengths do not match.
+
+        Parameters
+        ----------
+        columns: list of column names
+        data: list of array-likes containing the data column-wise.
+        """
+        if not self.index_col and len(columns) != len(data) and columns:
+            if len(columns) == len(data) - 1 and np.all(
+                (is_object_dtype(data[-1]) and data[-1] == "") | isna(data[-1])
+            ):
+                return
+            warnings.warn(
+                "Length of header or names does not match length of data. This leads "
+                "to a loss of data with index_col=False.",
+                ParserWarning,
+                stacklevel=find_stack_level(),
+            )
 
     def _evaluate_usecols(self, usecols, names):
         """
@@ -1061,12 +1093,14 @@ def _process_date_conversion(
     if isinstance(parse_spec, list):
         # list of column lists
         for colspec in parse_spec:
-            if is_scalar(colspec):
+            if is_scalar(colspec) or isinstance(colspec, tuple):
                 if isinstance(colspec, int) and colspec not in data_dict:
                     colspec = orig_names[colspec]
                 if _isindex(colspec):
                     continue
-                data_dict[colspec] = converter(data_dict[colspec])
+                # Pyarrow engine returns Series which we need to convert to
+                # numpy array before converter, its a no-op for other parsers
+                data_dict[colspec] = converter(np.asarray(data_dict[colspec]))
             else:
                 new_name, col, old_names = _try_convert_dates(
                     converter, colspec, data_dict, orig_names
@@ -1114,8 +1148,12 @@ def _try_convert_dates(parser: Callable, colspec, data_dict, columns):
         else:
             colnames.append(c)
 
-    new_name = "_".join(str(x) for x in colnames)
-    to_parse = [data_dict[c] for c in colnames if c in data_dict]
+    new_name: tuple | str
+    if all(isinstance(x, tuple) for x in colnames):
+        new_name = tuple(map("_".join, zip(*colnames)))
+    else:
+        new_name = "_".join([str(x) for x in colnames])
+    to_parse = [np.asarray(data_dict[c]) for c in colnames if c in data_dict]
 
     new_col = parser(*to_parse)
     return new_name, new_col, colnames

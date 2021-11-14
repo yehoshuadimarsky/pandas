@@ -24,7 +24,6 @@ from pandas.core.groupby.generic import (
     DataFrameGroupBy,
     SeriesGroupBy,
 )
-from pandas.core.groupby.groupby import DataError
 
 
 def assert_fp_equal(a, b):
@@ -184,7 +183,7 @@ def test_transform_axis_1(request, transformation_func, using_array_manager):
         result = df.groupby([0, 0, 1], axis=1).transform(transformation_func, *args)
         expected = df.T.groupby([0, 0, 1]).transform(transformation_func, *args).T
 
-    if transformation_func == "diff":
+    if transformation_func in ["diff", "shift"]:
         # Result contains nans, so transpose coerces to float
         expected["b"] = expected["b"].astype("int64")
 
@@ -741,11 +740,21 @@ def test_cython_transform_frame(op, args, targop):
             tm.assert_frame_equal(expected, getattr(gb, op)(*args).sort_index(axis=1))
             # individual columns
             for c in df:
-                if c not in ["float", "int", "float_missing"] and op != "shift":
-                    msg = "No numeric types to aggregate"
-                    with pytest.raises(DataError, match=msg):
+                if (
+                    c not in ["float", "int", "float_missing"]
+                    and op != "shift"
+                    and not (c == "timedelta" and op == "cumsum")
+                ):
+                    msg = "|".join(
+                        [
+                            "does not support .* operations",
+                            ".* is not supported for object dtype",
+                            "is not implemented for this dtype",
+                        ]
+                    )
+                    with pytest.raises(TypeError, match=msg):
                         gb[c].transform(op)
-                    with pytest.raises(DataError, match=msg):
+                    with pytest.raises(TypeError, match=msg):
                         getattr(gb[c], op)()
                 else:
                     expected = gb[c].apply(targop)
@@ -1266,4 +1275,25 @@ def test_string_rank_grouping():
     df = DataFrame({"A": [1, 1, 2], "B": [1, 2, 3]})
     result = df.groupby("A").transform("rank")
     expected = DataFrame({"B": [1.0, 2.0, 1.0]})
+    tm.assert_frame_equal(result, expected)
+
+
+def test_transform_cumcount():
+    # GH 27472
+    df = DataFrame({"a": [0, 0, 0, 1, 1, 1], "b": range(6)})
+    grp = df.groupby(np.repeat([0, 1], 3))
+
+    result = grp.cumcount()
+    expected = Series([0, 1, 2, 0, 1, 2])
+    tm.assert_series_equal(result, expected)
+
+    result = grp.transform("cumcount")
+    tm.assert_series_equal(result, expected)
+
+
+def test_null_group_lambda_self():
+    # GH 17093
+    df = DataFrame({"A": [1, np.nan], "B": [1, 1]})
+    result = df.groupby("A").transform(lambda x: x)
+    expected = DataFrame([1], columns=["B"])
     tm.assert_frame_equal(result, expected)

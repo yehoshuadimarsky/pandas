@@ -1,11 +1,8 @@
+from __future__ import annotations
+
 from datetime import datetime
 from io import StringIO
 import re
-from typing import (
-    Dict,
-    List,
-    Union,
-)
 
 import numpy as np
 import pytest
@@ -24,12 +21,12 @@ import pandas._testing as tm
 
 
 @pytest.fixture
-def mix_ab() -> Dict[str, List[Union[int, str]]]:
+def mix_ab() -> dict[str, list[int | str]]:
     return {"a": list(range(4)), "b": list("ab..")}
 
 
 @pytest.fixture
-def mix_abc() -> Dict[str, List[Union[float, str]]]:
+def mix_abc() -> dict[str, list[float | str]]:
     return {"a": list(range(4)), "b": list("ab.."), "c": ["a", "b", np.nan, "d"]}
 
 
@@ -1112,12 +1109,17 @@ class TestDataFrameReplace:
         # coerce to object
         result = df.copy()
         result.iloc[1, 0] = np.nan
-        result = result.replace({"A": pd.NaT}, Timestamp("20130104", tz="US/Pacific"))
+        with tm.assert_produces_warning(FutureWarning, match="mismatched timezone"):
+            result = result.replace(
+                {"A": pd.NaT}, Timestamp("20130104", tz="US/Pacific")
+            )
         expected = DataFrame(
             {
                 "A": [
                     Timestamp("20130101", tz="US/Eastern"),
                     Timestamp("20130104", tz="US/Pacific"),
+                    # once deprecation is enforced
+                    # Timestamp("20130104", tz="US/Pacific").tz_convert("US/Eastern"),
                     Timestamp("20130103", tz="US/Eastern"),
                 ],
                 "B": [0, np.nan, 2],
@@ -1427,6 +1429,25 @@ class TestDataFrameReplace:
         expected = obj.copy()
         obj = obj.replace({None: np.nan})
         tm.assert_equal(obj, expected)
+
+    @pytest.mark.parametrize(
+        "data, to_replace, value, expected",
+        [
+            ([1], [1.0], [0], [0]),
+            ([1], [1], [0], [0]),
+            ([1.0], [1.0], [0], [0.0]),
+            ([1.0], [1], [0], [0.0]),
+        ],
+    )
+    @pytest.mark.parametrize("box", [list, tuple, np.array])
+    def test_replace_list_with_mixed_type(
+        self, data, to_replace, value, expected, box, frame_or_series
+    ):
+        # GH#40371
+        obj = frame_or_series(data)
+        expected = frame_or_series(expected)
+        result = obj.replace(box(to_replace), value)
+        tm.assert_equal(result, expected)
 
 
 class TestDataFrameReplaceRegex:

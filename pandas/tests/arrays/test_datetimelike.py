@@ -1,8 +1,6 @@
+from __future__ import annotations
+
 import re
-from typing import (
-    Type,
-    Union,
-)
 
 import numpy as np
 import pytest
@@ -12,7 +10,6 @@ from pandas._libs import (
     OutOfBoundsDatetime,
     Timestamp,
 )
-from pandas.compat import np_version_under1p18
 import pandas.util._test_decorators as td
 
 import pandas as pd
@@ -80,7 +77,7 @@ def timedelta_index():
 
 
 class SharedTests:
-    index_cls: Type[Union[DatetimeIndex, PeriodIndex, TimedeltaIndex]]
+    index_cls: type[DatetimeIndex | PeriodIndex | TimedeltaIndex]
 
     @pytest.fixture
     def arr1d(self):
@@ -290,15 +287,10 @@ class SharedTests:
         # GH#29884 match numpy convention on whether NaT goes
         #  at the end or the beginning
         result = arr.searchsorted(NaT)
-        if np_version_under1p18:
-            # Following numpy convention, NaT goes at the beginning
-            #  (unlike NaN which goes at the end)
-            assert result == 0
-        else:
-            assert result == 10
+        assert result == 10
 
     @pytest.mark.parametrize("box", [None, "index", "series"])
-    def test_searchsorted_castable_strings(self, arr1d, box, request):
+    def test_searchsorted_castable_strings(self, arr1d, box, request, string_storage):
         if isinstance(arr1d, DatetimeArray):
             tz = arr1d.tz
             ts1, ts2 = arr1d[1:3]
@@ -341,14 +333,17 @@ class SharedTests:
         ):
             arr.searchsorted("foo")
 
-        with pytest.raises(
-            TypeError,
-            match=re.escape(
-                f"value should be a '{arr1d._scalar_type.__name__}', 'NaT', "
-                "or array of those. Got 'StringArray' instead."
-            ),
-        ):
-            arr.searchsorted([str(arr[1]), "baz"])
+        arr_type = "StringArray" if string_storage == "python" else "ArrowStringArray"
+
+        with pd.option_context("string_storage", string_storage):
+            with pytest.raises(
+                TypeError,
+                match=re.escape(
+                    f"value should be a '{arr1d._scalar_type.__name__}', 'NaT', "
+                    f"or array of those. Got '{arr_type}' instead."
+                ),
+            ):
+                arr.searchsorted([str(arr[1]), "baz"])
 
     def test_getitem_near_implementation_bounds(self):
         # We only check tz-naive for DTA bc the bounds are slightly different
@@ -888,7 +883,15 @@ class TestDatetimeArray(SharedTests):
             msg = "Timezones don't match. .* != 'Australia/Melbourne'"
             with pytest.raises(ValueError, match=msg):
                 # require tz match, not just tzawareness match
-                arr.take([-1, 1], allow_fill=True, fill_value=value)
+                with tm.assert_produces_warning(
+                    FutureWarning, match="mismatched timezone"
+                ):
+                    result = arr.take([-1, 1], allow_fill=True, fill_value=value)
+
+            # once deprecation is enforced
+            # expected = arr.take([-1, 1], allow_fill=True,
+            #  fill_value=value.tz_convert(arr.dtype.tz))
+            # tm.assert_equal(result, expected)
 
     def test_concat_same_type_invalid(self, arr1d):
         # different timezones
@@ -1111,6 +1114,25 @@ class TestPeriodArray(SharedTests):
         #  an EA-specific tm.assert_ function
         tm.assert_index_equal(pd.Index(result), pd.Index(expected))
 
+    def test_to_timestamp_roundtrip_bday(self):
+        # Case where infer_freq inside would choose "D" instead of "B"
+        dta = pd.date_range("2021-10-18", periods=3, freq="B")._data
+        parr = dta.to_period()
+        result = parr.to_timestamp()
+        assert result.freq == "B"
+        tm.assert_extension_array_equal(result, dta)
+
+        dta2 = dta[::2]
+        parr2 = dta2.to_period()
+        result2 = parr2.to_timestamp()
+        assert result2.freq == "2B"
+        tm.assert_extension_array_equal(result2, dta2)
+
+        parr3 = dta.to_period("2B")
+        result3 = parr3.to_timestamp()
+        assert result3.freq == "B"
+        tm.assert_extension_array_equal(result3, dta)
+
     def test_to_timestamp_out_of_bounds(self):
         # GH#19643 previously overflowed silently
         pi = pd.period_range("1500", freq="Y", periods=3)
@@ -1243,17 +1265,11 @@ def test_invalid_nat_setitem_array(arr, non_casting_nats):
     ],
 )
 def test_to_numpy_extra(arr):
-    if np_version_under1p18:
-        # np.isnan(NaT) raises, so use pandas'
-        isnan = pd.isna
-    else:
-        isnan = np.isnan
-
     arr[0] = NaT
     original = arr.copy()
 
     result = arr.to_numpy()
-    assert isnan(result[0])
+    assert np.isnan(result[0])
 
     result = arr.to_numpy(dtype="int64")
     assert result[0] == -9223372036854775808

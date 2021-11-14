@@ -9,9 +9,7 @@ from pandas.core.dtypes.dtypes import IntervalDtype
 from pandas import (
     Categorical,
     CategoricalIndex,
-    Float64Index,
     Index,
-    Int64Index,
     Interval,
     IntervalIndex,
     date_range,
@@ -20,6 +18,10 @@ from pandas import (
     timedelta_range,
 )
 import pandas._testing as tm
+from pandas.core.api import (
+    Float64Index,
+    Int64Index,
+)
 from pandas.core.arrays import IntervalArray
 import pandas.core.common as com
 
@@ -412,8 +414,8 @@ class TestClassConstructors(ConstructorTests):
         with pytest.raises(TypeError, match=msg):
             constructor(5)
 
-        # not an interval
-        msg = "type <class 'numpy.int64'> with value 0 is not an interval"
+        # not an interval; dtype depends on 32bit/windows builds
+        msg = "type <class 'numpy.int(32|64)'> with value 0 is not an interval"
         with pytest.raises(TypeError, match=msg):
             constructor([0, 1])
 
