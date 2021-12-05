@@ -38,4 +38,5 @@ RUN mkdir "$pandas_home" \
 RUN conda install -y mamba
 RUN mamba env update -n base -f "$pandas_home/environment.yml"
 
-WORKDIR $pandas_home
+ENV PANDAS_HOME=${pandas_home}
+WORKDIR $PANDAS_HOME

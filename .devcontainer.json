@@ -4,7 +4,7 @@
 	"name": "pandas",
 	"context": ".",
 	"dockerFile": "Dockerfile",
-	"postCreateCommand": "/opt/conda/etc/profile.d/conda.sh && conda activate base && python setup.py build_ext -j 4 && python -m pip install -e ."
+	"postCreateCommand": "/opt/conda/etc/profile.d/conda.sh && conda activate base && python setup.py build_ext -j 4 && python -m pip install -e .",
 
 	// Use 'settings' to set *default* container specific settings.json values on container create.
 	// You can edit these settings after create using File > Preferences > Settings > Remote.
