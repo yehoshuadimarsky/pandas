@@ -260,9 +260,6 @@ class TestTableOrient:
         tm.assert_frame_equal(result1, df)
         tm.assert_frame_equal(result2, df)
 
-    @pytest.mark.filterwarnings(
-        "ignore:an integer is required (got type float)*:DeprecationWarning"
-    )
     def test_to_json(self, df_table):
         df = df_table
         df.index.name = "idx"
@@ -439,9 +436,6 @@ class TestTableOrient:
 
         assert result == expected
 
-    @pytest.mark.filterwarnings(
-        "ignore:an integer is required (got type float)*:DeprecationWarning"
-    )
     def test_date_format_raises(self, df_table):
         msg = (
             "Trying to write with `orient='table'` and `date_format='epoch'`. Table "
@@ -709,6 +703,44 @@ class TestTableOrientReader:
             pd.read_json(out, orient="table")
 
     @pytest.mark.parametrize(
+        "index_nm",
+        [None, "idx", pytest.param("index", marks=pytest.mark.xfail), "level_0"],
+    )
+    @pytest.mark.parametrize(
+        "vals",
+        [
+            {"ints": [1, 2, 3, 4]},
+            {"objects": ["a", "b", "c", "d"]},
+            {"objects": ["1", "2", "3", "4"]},
+            {"date_ranges": pd.date_range("2016-01-01", freq="d", periods=4)},
+            {"categoricals": pd.Series(pd.Categorical(["a", "b", "c", "c"]))},
+            {
+                "ordered_cats": pd.Series(
+                    pd.Categorical(["a", "b", "c", "c"], ordered=True)
+                )
+            },
+            {"floats": [1.0, 2.0, 3.0, 4.0]},
+            {"floats": [1.1, 2.2, 3.3, 4.4]},
+            {"bools": [True, False, False, True]},
+            {
+                "timezones": pd.date_range(
+                    "2016-01-01", freq="d", periods=4, tz="US/Central"
+                )  # added in # GH 35973
+            },
+        ],
+    )
+    def test_read_json_table_period_orient(self, index_nm, vals, recwarn):
+        df = DataFrame(
+            vals,
+            index=pd.Index(
+                (pd.Period(f"2022Q{q}") for q in range(1, 5)), name=index_nm
+            ),
+        )
+        out = df.to_json(orient="table")
+        result = pd.read_json(out, orient="table")
+        tm.assert_frame_equal(df, result)
+
+    @pytest.mark.parametrize(
         "idx",
         [
             pd.Index(range(4)),
@@ -747,9 +779,6 @@ class TestTableOrientReader:
         result = pd.read_json(out, orient="table")
         tm.assert_frame_equal(df, result)
 
-    @pytest.mark.filterwarnings(
-        "ignore:an integer is required (got type float)*:DeprecationWarning"
-    )
     def test_comprehensive(self):
         df = DataFrame(
             {

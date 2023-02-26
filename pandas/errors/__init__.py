@@ -12,24 +12,22 @@ from pandas._libs.tslibs import (
     OutOfBoundsTimedelta,
 )
 
+from pandas.util.version import InvalidVersion
+
 
 class IntCastingNaNError(ValueError):
     """
-    Raised when attempting an astype operation on an array with NaN to an integer
-    dtype.
+    Exception raised when converting (``astype``) an array with NaN to an integer type.
     """
-
-    pass
 
 
 class NullFrequencyError(ValueError):
     """
-    Error raised when a null `freq` attribute is used in an operation
-    that needs a non-null frequency, particularly `DatetimeIndex.shift`,
-    `TimedeltaIndex.shift`, `PeriodIndex.shift`.
-    """
+    Exception raised when a ``freq`` cannot be null.
 
-    pass
+    Particularly ``DatetimeIndex.shift``, ``TimedeltaIndex.shift``,
+    ``PeriodIndex.shift``.
+    """
 
 
 class PerformanceWarning(Warning):
@@ -40,16 +38,17 @@ class PerformanceWarning(Warning):
 
 class UnsupportedFunctionCall(ValueError):
     """
-    Exception raised when attempting to call a numpy function
-    on a pandas object, but that function is not supported by
-    the object e.g. ``np.cumsum(groupby_object)``.
+    Exception raised when attempting to call a unsupported numpy function.
+
+    For example, ``np.cumsum(groupby_object)``.
     """
 
 
 class UnsortedIndexError(KeyError):
     """
-    Error raised when attempting to get a slice of a MultiIndex,
-    and the index has not been lexsorted. Subclass of `KeyError`.
+    Error raised when slicing a MultiIndex which has not been lexsorted.
+
+    Subclass of `KeyError`.
     """
 
 
@@ -124,8 +123,7 @@ class DtypeWarning(Warning):
 
 class EmptyDataError(ValueError):
     """
-    Exception that is thrown in `pd.read_csv` (by both the C and
-    Python engines) when empty data or header is encountered.
+    Exception raised in ``pd.read_csv`` when empty data or header is encountered.
     """
 
 
@@ -172,8 +170,9 @@ class ParserWarning(Warning):
 
 class MergeError(ValueError):
     """
-    Error raised when problems arise during merging due to problems
-    with input data. Subclass of `ValueError`.
+    Exception raised when merging data.
+
+    Subclass of ``ValueError``.
     """
 
 
@@ -185,11 +184,10 @@ class AccessorRegistrationWarning(Warning):
 
 class AbstractMethodError(NotImplementedError):
     """
-    Raise this error instead of NotImplementedError for abstract methods
-    while keeping compatibility with Python 2 and Python 3.
+    Raise this error instead of NotImplementedError for abstract methods.
     """
 
-    def __init__(self, class_instance, methodtype="method") -> None:
+    def __init__(self, class_instance, methodtype: str = "method") -> None:
         types = {"method", "classmethod", "staticmethod", "property"}
         if methodtype not in types:
             raise ValueError(
@@ -243,17 +241,23 @@ class InvalidIndexError(Exception):
 
 class DataError(Exception):
     """
-    Exception raised when trying to perform a ohlc on a non-numnerical column.
-    Or, it can be raised when trying to apply a function to a non-numerical
-    column on a rolling window.
+    Exceptionn raised when performing an operation on non-numerical data.
+
+    For example, calling ``ohlc`` on a non-numerical column or a function
+    on a rolling window.
     """
 
 
 class SpecificationError(Exception):
     """
-    Exception raised in two scenarios. The first way is calling agg on a
+    Exception raised by ``agg`` when the functions are ill-specified.
+
+    The exception raised in two scenarios.
+
+    The first way is calling ``agg`` on a
     Dataframe or Series using a nested renamer (dict-of-dict).
-    The second way is calling agg on a Dataframe with duplicated functions
+
+    The second way is calling ``agg`` on a Dataframe with duplicated functions
     names without assigning column name.
 
     Examples
@@ -274,11 +278,12 @@ class SpecificationError(Exception):
 
 class SettingWithCopyError(ValueError):
     """
-    Exception is raised when trying to set on a copied slice from a dataframe and
-    the mode.chained_assignment is set to 'raise.' This can happen unintentionally
-    when chained indexing.
+    Exception raised when trying to set on a copied slice from a ``DataFrame``.
 
-    For more information on eveluation order,
+    The ``mode.chained_assignment`` needs to be set to set to 'raise.' This can
+    happen unintentionally when chained indexing.
+
+    For more information on evaluation order,
     see :ref:`the user guide<indexing.evaluation_order>`.
 
     For more information on view vs. copy,
@@ -295,11 +300,13 @@ class SettingWithCopyError(ValueError):
 
 class SettingWithCopyWarning(Warning):
     """
-    Warning is raised when trying to set on a copied slice from a dataframe and
-    the mode.chained_assignment is set to 'warn.' 'Warn' is the default option.
-    This can happen unintentionally when chained indexing.
+    Warning raised when trying to set on a copied slice from a ``DataFrame``.
 
-    For more information on eveluation order,
+    The ``mode.chained_assignment`` needs to be set to set to 'warn.'
+    'Warn' is the default option. This can happen unintentionally when
+    chained indexing.
+
+    For more information on evaluation order,
     see :ref:`the user guide<indexing.evaluation_order>`.
 
     For more information on view vs. copy,
@@ -313,12 +320,50 @@ class SettingWithCopyWarning(Warning):
     """
 
 
+class ChainedAssignmentError(ValueError):
+    """
+    Exception raised when trying to set using chained assignment.
+
+    When the ``mode.copy_on_write`` option is enabled, chained assignment can
+    never work. In such a situation, we are always setting into a temporary
+    object that is the result of an indexing operation (getitem), which under
+    Copy-on-Write always behaves as a copy. Thus, assigning through a chain
+    can never update the original Series or DataFrame.
+
+    For more information on view vs. copy,
+    see :ref:`the user guide<indexing.view_versus_copy>`.
+
+    Examples
+    --------
+    >>> pd.options.mode.copy_on_write = True
+    >>> df = pd.DataFrame({'A': [1, 1, 1, 2, 2]}, columns=['A'])
+    >>> df["A"][0:3] = 10 # doctest: +SKIP
+    ... # ChainedAssignmentError: ...
+    >>> pd.options.mode.copy_on_write = False
+    """
+
+
+_chained_assignment_msg = (
+    "A value is trying to be set on a copy of a DataFrame or Series "
+    "through chained assignment.\n"
+    "When using the Copy-on-Write mode, such chained assignment never works "
+    "to update the original DataFrame or Series, because the intermediate "
+    "object on which we are setting values always behaves as a copy.\n\n"
+    "Try using '.loc[row_indexer, col_indexer] = value' instead, to perform "
+    "the assignment in a single step.\n\n"
+    "See the caveats in the documentation: "
+    "https://pandas.pydata.org/pandas-docs/stable/user_guide/"
+    "indexing.html#returning-a-view-versus-a-copy"
+)
+
+
 class NumExprClobberingError(NameError):
     """
-    Exception is raised when trying to use a built-in numexpr name as a variable name
-    in a method like query or eval. Eval will throw the error if the engine is set
-    to 'numexpr'. 'numexpr' is the default engine value for eval if the numexpr package
-    is installed.
+    Exception raised when trying to use a built-in numexpr name as a variable name.
+
+    ``eval`` or ``query`` will throw the error if the engine is set
+    to 'numexpr'. 'numexpr' is the default engine value for these methods if the
+    numexpr package is installed.
 
     Examples
     --------
@@ -333,9 +378,9 @@ class NumExprClobberingError(NameError):
 
 class UndefinedVariableError(NameError):
     """
-    Exception is raised when trying to use an undefined variable name in a method
-    like query or eval. It will also specific whether the undefined variable is
-    local or not.
+    Exception raised by ``query`` or ``eval`` when using an undefined variable name.
+
+    It will also specify whether the undefined variable is local or not.
 
     Examples
     --------
@@ -380,15 +425,18 @@ class IndexingError(Exception):
 
 class PyperclipException(RuntimeError):
     """
-    Exception is raised when trying to use methods like to_clipboard() and
-    read_clipboard() on an unsupported OS/platform.
+    Exception raised when clipboard functionality is unsupported.
+
+    Raised by ``to_clipboard()`` and ``read_clipboard()``.
     """
 
 
 class PyperclipWindowsException(PyperclipException):
     """
-    Exception is raised when pandas is unable to get access to the clipboard handle
-    due to some other window process is accessing it.
+    Exception raised when clipboard functionality is unsupported by Windows.
+
+    Access to the clipboard handle would be denied due to some other
+    window process is accessing it.
     """
 
     def __init__(self, message: str) -> None:
@@ -400,25 +448,27 @@ class PyperclipWindowsException(PyperclipException):
 class CSSWarning(UserWarning):
     """
     Warning is raised when converting css styling fails.
+
     This can be due to the styling not having an equivalent value or because the
     styling isn't properly formatted.
 
     Examples
     --------
     >>> df = pd.DataFrame({'A': [1, 1, 1]})
-    >>> df.style.applymap(lambda x: 'background-color: blueGreenRed;')
-    ...         .to_excel('styled.xlsx') # doctest: +SKIP
-    ... # CSSWarning: Unhandled color format: 'blueGreenRed'
-    >>> df.style.applymap(lambda x: 'border: 1px solid red red;')
-    ...         .to_excel('styled.xlsx') # doctest: +SKIP
-    ... # CSSWarning: Too many tokens provided to "border" (expected 1-3)
+    >>> df.style.applymap(
+    ...     lambda x: 'background-color: blueGreenRed;'
+    ... ).to_excel('styled.xlsx')  # doctest: +SKIP
+    CSSWarning: Unhandled color format: 'blueGreenRed'
+    >>> df.style.applymap(
+    ...     lambda x: 'border: 1px solid red red;'
+    ... ).to_excel('styled.xlsx')  # doctest: +SKIP
+    CSSWarning: Unhandled color format: 'blueGreenRed'
     """
 
 
 class PossibleDataLossError(Exception):
     """
-    Exception is raised when trying to open a HDFStore file when the file is already
-    opened.
+    Exception raised when trying to open a HDFStore file when already opened.
 
     Examples
     --------
@@ -443,16 +493,104 @@ class ClosedFileError(Exception):
 
 class IncompatibilityWarning(Warning):
     """
-    Warning is raised when trying to use where criteria on an incompatible
-    HDF5 file.
+    Warning raised when trying to use where criteria on an incompatible HDF5 file.
     """
 
 
 class AttributeConflictWarning(Warning):
     """
-    Warning is raised when attempting to append an index with a different
+    Warning raised when index attributes conflict when using HDFStore.
+
+    Occurs when attempting to append an index with a different
     name than the existing index on an HDFStore or attempting to append an index with a
     different frequency than the existing index on an HDFStore.
+    """
+
+
+class DatabaseError(OSError):
+    """
+    Error is raised when executing sql with bad syntax or sql that throws an error.
+
+    Examples
+    --------
+    >>> from sqlite3 import connect
+    >>> conn = connect(':memory:')
+    >>> pd.read_sql('select * test', conn) # doctest: +SKIP
+    ... # DatabaseError: Execution failed on sql 'test': near "test": syntax error
+    """
+
+
+class PossiblePrecisionLoss(Warning):
+    """
+    Warning raised by to_stata on a column with a value outside or equal to int64.
+
+    When the column value is outside or equal to the int64 value the column is
+    converted to a float64 dtype.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({"s": pd.Series([1, 2**53], dtype=np.int64)})
+    >>> df.to_stata('test') # doctest: +SKIP
+    ... # PossiblePrecisionLoss: Column converted from int64 to float64...
+    """
+
+
+class ValueLabelTypeMismatch(Warning):
+    """
+    Warning raised by to_stata on a category column that contains non-string values.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({"categories": pd.Series(["a", 2], dtype="category")})
+    >>> df.to_stata('test') # doctest: +SKIP
+    ... # ValueLabelTypeMismatch: Stata value labels (pandas categories) must be str...
+    """
+
+
+class InvalidColumnName(Warning):
+    """
+    Warning raised by to_stata the column contains a non-valid stata name.
+
+    Because the column name is an invalid Stata variable, the name needs to be
+    converted.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({"0categories": pd.Series([2, 2])})
+    >>> df.to_stata('test') # doctest: +SKIP
+    ... # InvalidColumnName: Not all pandas column names were valid Stata variable...
+    """
+
+
+class CategoricalConversionWarning(Warning):
+    """
+    Warning is raised when reading a partial labeled Stata file using a iterator.
+
+    Examples
+    --------
+    >>> from pandas.io.stata import StataReader
+    >>> with StataReader('dta_file', chunksize=2) as reader: # doctest: +SKIP
+    ...   for i, block in enumerate(reader):
+    ...      print(i, block)
+    ... # CategoricalConversionWarning: One or more series with value labels...
+    """
+
+
+class LossySetitemError(Exception):
+    """
+    Raised when trying to do a __setitem__ on an np.ndarray that is not lossless.
+    """
+
+
+class NoBufferPresent(Exception):
+    """
+    Exception is raised in _get_data_buffer to signal that there is no requested buffer.
+    """
+
+
+class InvalidComparison(Exception):
+    """
+    Exception is raised by _validate_comparison_value to indicate an invalid comparison.
     """
 
 
@@ -460,17 +598,24 @@ __all__ = [
     "AbstractMethodError",
     "AccessorRegistrationWarning",
     "AttributeConflictWarning",
+    "CategoricalConversionWarning",
     "ClosedFileError",
     "CSSWarning",
+    "DatabaseError",
     "DataError",
     "DtypeWarning",
     "DuplicateLabelError",
     "EmptyDataError",
     "IncompatibilityWarning",
     "IntCastingNaNError",
+    "InvalidColumnName",
+    "InvalidComparison",
     "InvalidIndexError",
+    "InvalidVersion",
     "IndexingError",
+    "LossySetitemError",
     "MergeError",
+    "NoBufferPresent",
     "NullFrequencyError",
     "NumbaUtilError",
     "NumExprClobberingError",
@@ -481,6 +626,7 @@ __all__ = [
     "ParserWarning",
     "PerformanceWarning",
     "PossibleDataLossError",
+    "PossiblePrecisionLoss",
     "PyperclipException",
     "PyperclipWindowsException",
     "SettingWithCopyError",
@@ -489,4 +635,5 @@ __all__ = [
     "UndefinedVariableError",
     "UnsortedIndexError",
     "UnsupportedFunctionCall",
+    "ValueLabelTypeMismatch",
 ]

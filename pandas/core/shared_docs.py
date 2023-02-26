@@ -75,6 +75,11 @@ keep_shape : bool, default False
 keep_equal : bool, default False
     If true, the result keeps values that are equal.
     Otherwise, equal values are shown as NaNs.
+
+result_names : tuple, default ('self', 'other')
+    Set the dataframes names in the comparison.
+
+    .. versionadded:: 1.5.0
 """
 
 _shared_docs[
@@ -89,7 +94,7 @@ groups.
 
 Parameters
 ----------
-by : mapping, function, label, or list of labels
+by : mapping, function, label, pd.Grouper or list of such
     Used to determine the groups for the groupby.
     If ``by`` is a function, it's called on each value of the object's
     index. If a dict or Series is passed, the Series or dict VALUES
@@ -105,7 +110,7 @@ axis : {0 or 'index', 1 or 'columns'}, default 0
     is unused and defaults to 0.
 level : int, level name, or sequence of such, default None
     If the axis is a MultiIndex (hierarchical), group by a particular
-    level or levels.
+    level or levels. Do not specify both ``by`` and ``level``.
 as_index : bool, default True
     For aggregated output, return object with group labels as the
     index. Only relevant for DataFrame input. as_index=False is
@@ -114,6 +119,12 @@ sort : bool, default True
     Sort group keys. Get better performance by turning this off.
     Note this does not influence the order of observations within each
     group. Groupby preserves the order of rows within each group.
+
+    .. versionchanged:: 2.0.0
+
+        Specifying ``sort=False`` with an ordered categorical grouper will no
+        longer sort the values.
+
 group_keys : bool, optional
     When calling apply and the ``by`` argument produces a like-indexed
     (i.e. :ref:`a transform <groupby.transform>`) result, add group keys to
@@ -128,11 +139,6 @@ group_keys : bool, optional
        result from ``apply`` is a like-indexed Series or DataFrame.
        Specify ``group_keys`` explicitly to include the group keys or
        not.
-squeeze : bool, default False
-    Reduce the dimensionality of the return type if possible,
-    otherwise return a consistent type.
-
-    .. deprecated:: 1.1.0
 
 observed : bool, default False
     This only applies if any of the groupers are Categoricals.
@@ -438,8 +444,8 @@ _shared_docs[
     a reproducible gzip archive:
     ``compression={'method': 'gzip', 'compresslevel': 1, 'mtime': 1}``.
 
-        .. versionadded:: 1.5.0
-            Added support for `.tar` files."""
+    .. versionadded:: 1.5.0
+        Added support for `.tar` files."""
 
 _shared_docs[
     "decompression_options"
@@ -460,8 +466,8 @@ _shared_docs[
     custom compression dictionary:
     ``compression={'method': 'zstd', 'dict_data': my_compression_dict}``.
 
-        .. versionadded:: 1.5.0
-            Added support for `.tar` files."""
+    .. versionadded:: 1.5.0
+        Added support for `.tar` files."""
 
 _shared_docs[
     "replace"
@@ -544,9 +550,6 @@ _shared_docs[
     method : {{'pad', 'ffill', 'bfill'}}
         The method to use when for replacement, when `to_replace` is a
         scalar, list or tuple and `value` is ``None``.
-
-        .. versionchanged:: 0.23.0
-            Added to DataFrame.
 
     Returns
     -------
@@ -795,8 +798,8 @@ _shared_docs[
     Consider a dataset containing food consumption in Argentina.
 
     >>> df = pd.DataFrame({{'consumption': [10.51, 103.11, 55.48],
-    ...                    'co2_emissions': [37.2, 19.66, 1712]}},
-    ...                    index=['Pork', 'Wheat Products', 'Beef'])
+    ...                     'co2_emissions': [37.2, 19.66, 1712]}},
+    ...                   index=['Pork', 'Wheat Products', 'Beef'])
 
     >>> df
                     consumption  co2_emissions
@@ -862,8 +865,8 @@ _shared_docs[
     Consider a dataset containing food consumption in Argentina.
 
     >>> df = pd.DataFrame({{'consumption': [10.51, 103.11, 55.48],
-    ...                    'co2_emissions': [37.2, 19.66, 1712]}},
-    ...                    index=['Pork', 'Wheat Products', 'Beef'])
+    ...                     'co2_emissions': [37.2, 19.66, 1712]}},
+    ...                   index=['Pork', 'Wheat Products', 'Beef'])
 
     >>> df
                     consumption  co2_emissions

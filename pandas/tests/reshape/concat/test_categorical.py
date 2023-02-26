@@ -50,7 +50,6 @@ class TestCategoricalConcat:
         tm.assert_frame_equal(res, exp)
 
     def test_categorical_concat_dtypes(self):
-
         # GH8143
         index = ["cat", "obj", "num"]
         cat = Categorical(["a", "b", "c"])
@@ -93,7 +92,6 @@ class TestCategoricalConcat:
         tm.assert_frame_equal(result, exp)
 
     def test_categorical_concat_preserve(self):
-
         # GH 8641  series concat not preserving category dtype
         # GH 13524 can concat different categories
         s = Series(list("abc"), dtype="category")
@@ -125,7 +123,6 @@ class TestCategoricalConcat:
         tm.assert_frame_equal(res, exp)
 
     def test_categorical_index_preserver(self):
-
         a = Series(np.arange(6, dtype="int64"))
         b = Series(list("aabbca"))
 
@@ -237,4 +234,20 @@ class TestCategoricalConcat:
             },
             index=[0, 1, 2, 0, 1, 2],
         )
+        tm.assert_frame_equal(result, expected)
+
+    def test_concat_categorical_same_categories_different_order(self):
+        # https://github.com/pandas-dev/pandas/issues/24845
+
+        c1 = pd.CategoricalIndex(["a", "a"], categories=["a", "b"], ordered=False)
+        c2 = pd.CategoricalIndex(["b", "b"], categories=["b", "a"], ordered=False)
+        c3 = pd.CategoricalIndex(
+            ["a", "a", "b", "b"], categories=["a", "b"], ordered=False
+        )
+
+        df1 = DataFrame({"A": [1, 2]}, index=c1)
+        df2 = DataFrame({"A": [3, 4]}, index=c2)
+
+        result = pd.concat((df1, df2))
+        expected = DataFrame({"A": [1, 2, 3, 4]}, index=c3)
         tm.assert_frame_equal(result, expected)

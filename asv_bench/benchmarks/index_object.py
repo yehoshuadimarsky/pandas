@@ -4,7 +4,6 @@ import numpy as np
 
 from pandas import (
     DatetimeIndex,
-    Float64Index,
     Index,
     IntervalIndex,
     MultiIndex,
@@ -17,30 +16,39 @@ from .pandas_vb_common import tm
 
 
 class SetOperations:
-
     params = (
-        ["datetime", "date_string", "int", "strings"],
+        ["monotonic", "non_monotonic"],
+        ["datetime", "date_string", "int", "strings", "ea_int"],
         ["intersection", "union", "symmetric_difference"],
     )
-    param_names = ["dtype", "method"]
+    param_names = ["index_structure", "dtype", "method"]
 
-    def setup(self, dtype, method):
+    def setup(self, index_structure, dtype, method):
         N = 10**5
         dates_left = date_range("1/1/2000", periods=N, freq="T")
         fmt = "%Y-%m-%d %H:%M:%S"
         date_str_left = Index(dates_left.strftime(fmt))
         int_left = Index(np.arange(N))
+        ea_int_left = Index(np.arange(N), dtype="Int64")
         str_left = tm.makeStringIndex(N)
+
         data = {
-            "datetime": {"left": dates_left, "right": dates_left[:-1]},
-            "date_string": {"left": date_str_left, "right": date_str_left[:-1]},
-            "int": {"left": int_left, "right": int_left[:-1]},
-            "strings": {"left": str_left, "right": str_left[:-1]},
+            "datetime": dates_left,
+            "date_string": date_str_left,
+            "int": int_left,
+            "strings": str_left,
+            "ea_int": ea_int_left,
         }
+
+        if index_structure == "non_monotonic":
+            data = {k: mi[::-1] for k, mi in data.items()}
+
+        data = {k: {"left": idx, "right": idx[:-1]} for k, idx in data.items()}
+
         self.left = data[dtype]["left"]
         self.right = data[dtype]["right"]
 
-    def time_operation(self, dtype, method):
+    def time_operation(self, index_structure, dtype, method):
         getattr(self.left, method)(self.right)
 
 
@@ -53,6 +61,15 @@ class SetDisjoint:
 
     def time_datetime_difference_disjoint(self):
         self.datetime_left.difference(self.datetime_right)
+
+
+class UnionWithDuplicates:
+    def setup(self):
+        self.left = Index(np.repeat(np.arange(1000), 100))
+        self.right = Index(np.tile(np.arange(500, 1500), 50))
+
+    def time_union_with_duplicates(self):
+        self.left.union(self.right)
 
 
 class Range:
@@ -107,7 +124,6 @@ class IndexEquals:
 
 class IndexAppend:
     def setup(self):
-
         N = 10_000
         self.range_idx = RangeIndex(0, 100)
         self.int_idx = self.range_idx.astype(int)
@@ -134,7 +150,6 @@ class IndexAppend:
 
 
 class Indexing:
-
     params = ["String", "Float", "Int"]
     param_names = ["dtype"]
 
@@ -183,8 +198,8 @@ class Float64IndexMethod:
     # GH 13166
     def setup(self):
         N = 100_000
-        a = np.arange(N)
-        self.ind = Float64Index(a * 4.8000000418824129e-08)
+        a = np.arange(N, dtype=np.float64)
+        self.ind = Index(a * 4.8000000418824129e-08)
 
     def time_get_loc(self):
         self.ind.get_loc(0)

@@ -24,10 +24,13 @@ main:
 The rest of the items in the file will be added directly to the context.
 """
 import argparse
+import collections
 import datetime
 import importlib
+import json
 import operator
 import os
+import pathlib
 import re
 import shutil
 import sys
@@ -40,6 +43,12 @@ import markdown
 import requests
 import yaml
 
+api_token = os.environ.get("GITHUB_TOKEN")
+if api_token is not None:
+    GITHUB_API_HEADERS = {"Authorization": f"Bearer {api_token}"}
+else:
+    GITHUB_API_HEADERS = {}
+
 
 class Preprocessors:
     """
@@ -51,6 +60,15 @@ class Preprocessors:
     The original context is obtained by parsing ``config.yml``, and
     anything else needed just be added with context preprocessors.
     """
+
+    @staticmethod
+    def current_year(context):
+        """
+        Add the current year to the context, so it can be used for the copyright
+        note, or other places where it is needed.
+        """
+        context["current_year"] = datetime.datetime.now().year
+        return context
 
     @staticmethod
     def navbar_add_info(context):
@@ -146,13 +164,42 @@ class Preprocessors:
         Given the active maintainers defined in the yaml file, it fetches
         the GitHub user information for them.
         """
-        context["maintainers"]["people"] = []
-        for user in context["maintainers"]["active"]:
-            resp = requests.get(f"https://api.github.com/users/{user}")
-            if context["ignore_io_errors"] and resp.status_code == 403:
-                return context
+        repeated = set(context["maintainers"]["active"]) & set(
+            context["maintainers"]["inactive"]
+        )
+        if repeated:
+            raise ValueError(f"Maintainers {repeated} are both active and inactive")
+
+        maintainers_info = {}
+        for user in (
+            context["maintainers"]["active"] + context["maintainers"]["inactive"]
+        ):
+            resp = requests.get(
+                f"https://api.github.com/users/{user}", headers=GITHUB_API_HEADERS
+            )
+            if resp.status_code == 403:
+                sys.stderr.write(
+                    "WARN: GitHub API quota exceeded when fetching maintainers\n"
+                )
+                # if we exceed github api quota, we use the github info
+                # of maintainers saved with the website
+                resp_bkp = requests.get(
+                    context["main"]["production_url"] + "maintainers.json"
+                )
+                resp_bkp.raise_for_status()
+                maintainers_info = resp_bkp.json()
+                break
+
             resp.raise_for_status()
-            context["maintainers"]["people"].append(resp.json())
+            maintainers_info[user] = resp.json()
+
+        context["maintainers"]["github_info"] = maintainers_info
+
+        # save the data fetched from github to use it in case we exceed
+        # git github api quota in the future
+        with open(pathlib.Path(context["target_path"]) / "maintainers.json", "w") as f:
+            json.dump(maintainers_info, f)
+
         return context
 
     @staticmethod
@@ -160,12 +207,23 @@ class Preprocessors:
         context["releases"] = []
 
         github_repo_url = context["main"]["github_repo_url"]
-        resp = requests.get(f"https://api.github.com/repos/{github_repo_url}/releases")
-        if context["ignore_io_errors"] and resp.status_code == 403:
-            return context
-        resp.raise_for_status()
+        resp = requests.get(
+            f"https://api.github.com/repos/{github_repo_url}/releases",
+            headers=GITHUB_API_HEADERS,
+        )
+        if resp.status_code == 403:
+            sys.stderr.write("WARN: GitHub API quota exceeded when fetching releases\n")
+            resp_bkp = requests.get(context["main"]["production_url"] + "releases.json")
+            resp_bkp.raise_for_status()
+            releases = resp_bkp.json()
+        else:
+            resp.raise_for_status()
+            releases = resp.json()
 
-        for release in resp.json():
+        with open(pathlib.Path(context["target_path"]) / "releases.json", "w") as f:
+            json.dump(releases, f, default=datetime.datetime.isoformat)
+
+        for release in releases:
             if release["prerelease"]:
                 continue
             published = datetime.datetime.strptime(
@@ -183,6 +241,71 @@ class Preprocessors:
                     ),
                 }
             )
+
+        return context
+
+    @staticmethod
+    def roadmap_pdeps(context):
+        """
+        PDEP's (pandas enhancement proposals) are not part of the bar
+        navigation. They are included as lists in the "Roadmap" page
+        and linked from there. This preprocessor obtains the list of
+        PDEP's in different status from the directory tree and GitHub.
+        """
+        KNOWN_STATUS = {"Under discussion", "Accepted", "Implemented", "Rejected"}
+        context["pdeps"] = collections.defaultdict(list)
+
+        # accepted, rejected and implemented
+        pdeps_path = (
+            pathlib.Path(context["source_path"]) / context["roadmap"]["pdeps_path"]
+        )
+        for pdep in sorted(pdeps_path.iterdir()):
+            if pdep.suffix != ".md":
+                continue
+            with pdep.open() as f:
+                title = f.readline()[2:]  # removing markdown title "# "
+                status = None
+                for line in f:
+                    if line.startswith("- Status: "):
+                        status = line.strip().split(": ", 1)[1]
+                        break
+                if status not in KNOWN_STATUS:
+                    raise RuntimeError(
+                        f'PDEP "{pdep}" status "{status}" is unknown. '
+                        f"Should be one of: {KNOWN_STATUS}"
+                    )
+            html_file = pdep.with_suffix(".html").name
+            context["pdeps"][status].append(
+                {
+                    "title": title,
+                    "url": f"pdeps/{html_file}",
+                }
+            )
+
+        # under discussion
+        github_repo_url = context["main"]["github_repo_url"]
+        resp = requests.get(
+            "https://api.github.com/search/issues?"
+            f"q=is:pr is:open label:PDEP repo:{github_repo_url}",
+            headers=GITHUB_API_HEADERS,
+        )
+        if resp.status_code == 403:
+            sys.stderr.write("WARN: GitHub API quota exceeded when fetching pdeps\n")
+            resp_bkp = requests.get(context["main"]["production_url"] + "pdeps.json")
+            resp_bkp.raise_for_status()
+            pdeps = resp_bkp.json()
+        else:
+            resp.raise_for_status()
+            pdeps = resp.json()
+
+        with open(pathlib.Path(context["target_path"]) / "pdeps.json", "w") as f:
+            json.dump(pdeps, f)
+
+        for pdep in pdeps["items"]:
+            context["pdeps"]["Under discussion"].append(
+                {"title": pdep["title"], "url": pdep["url"]}
+            )
+
         return context
 
 
@@ -212,7 +335,7 @@ def get_callable(obj_as_str: str) -> object:
     return obj
 
 
-def get_context(config_fname: str, ignore_io_errors: bool, **kwargs):
+def get_context(config_fname: str, **kwargs):
     """
     Load the config yaml as the base context, and enrich it with the
     information added by the context preprocessors defined in the file.
@@ -221,7 +344,6 @@ def get_context(config_fname: str, ignore_io_errors: bool, **kwargs):
         context = yaml.safe_load(f)
 
     context["source_path"] = os.path.dirname(config_fname)
-    context["ignore_io_errors"] = ignore_io_errors
     context.update(kwargs)
 
     preprocessors = (
@@ -259,13 +381,14 @@ def extend_base_template(content: str, base_template: str) -> str:
 
 
 def main(
-    source_path: str, target_path: str, base_url: str, ignore_io_errors: bool
+    source_path: str,
+    target_path: str,
 ) -> int:
     """
     Copy every file in the source directory to the target directory.
 
     For ``.md`` and ``.html`` files, render them with the context
-    before copyings them. ``.md`` files are transformed to HTML.
+    before copying them. ``.md`` files are transformed to HTML.
     """
     config_fname = os.path.join(source_path, "config.yml")
 
@@ -273,7 +396,7 @@ def main(
     os.makedirs(target_path, exist_ok=True)
 
     sys.stderr.write("Generating context...\n")
-    context = get_context(config_fname, ignore_io_errors, base_url=base_url)
+    context = get_context(config_fname, target_path=target_path)
     sys.stderr.write("Context generated\n")
 
     templates_path = os.path.join(source_path, context["main"]["templates_path"])
@@ -296,6 +419,7 @@ def main(
                     content, extensions=context["main"]["markdown_extensions"]
                 )
                 content = extend_base_template(body, context["main"]["base_template"])
+            context["base_url"] = "".join(["../"] * os.path.normpath(fname).count("/"))
             content = jinja_env.from_string(content).render(**context)
             fname = os.path.splitext(fname)[0] + ".html"
             with open(os.path.join(target_path, fname), "w") as f:
@@ -314,18 +438,5 @@ if __name__ == "__main__":
     parser.add_argument(
         "--target-path", default="build", help="directory where to write the output"
     )
-    parser.add_argument(
-        "--base-url", default="", help="base url where the website is served from"
-    )
-    parser.add_argument(
-        "--ignore-io-errors",
-        action="store_true",
-        help="do not fail if errors happen when fetching "
-        "data from http sources, and those fail "
-        "(mostly useful to allow github quota errors "
-        "when running the script locally)",
-    )
     args = parser.parse_args()
-    sys.exit(
-        main(args.source_path, args.target_path, args.base_url, args.ignore_io_errors)
-    )
+    sys.exit(main(args.source_path, args.target_path))

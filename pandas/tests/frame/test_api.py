@@ -7,7 +7,6 @@ import pytest
 
 from pandas._config.config import option_context
 
-import pandas.util._test_decorators as td
 from pandas.util._test_decorators import (
     async_mark,
     skip_if_no,
@@ -209,7 +208,6 @@ class TestDataFrameMisc:
         assert df.T.empty
 
     def test_with_datetimelikes(self):
-
         df = DataFrame(
             {
                 "A": date_range("20130101", periods=10),
@@ -219,7 +217,7 @@ class TestDataFrameMisc:
         t = df.T
 
         result = t.dtypes.value_counts()
-        expected = Series({np.dtype("object"): 10})
+        expected = Series({np.dtype("object"): 10}, name="count")
         tm.assert_series_equal(result, expected)
 
     def test_deepcopy(self, float_frame):
@@ -294,7 +292,6 @@ class TestDataFrameMisc:
         _check_f(d.copy(), f)
 
     @async_mark()
-    @td.check_file_leaks
     async def test_tab_complete_warning(self, ip, frame_or_series):
         # GH 16409
         pytest.importorskip("IPython", minversion="6.0.0")
@@ -322,7 +319,9 @@ class TestDataFrameMisc:
         assert result.attrs == {"version": 1}
 
     @pytest.mark.parametrize("allows_duplicate_labels", [True, False, None])
-    def test_set_flags(self, allows_duplicate_labels, frame_or_series):
+    def test_set_flags(
+        self, allows_duplicate_labels, frame_or_series, using_copy_on_write
+    ):
         obj = DataFrame({"A": [1, 2]})
         key = (0, 0)
         if frame_or_series is Series:
@@ -344,15 +343,25 @@ class TestDataFrameMisc:
         assert obj.flags.allows_duplicate_labels is True
 
         # But we didn't copy data
+        if frame_or_series is Series:
+            assert np.may_share_memory(obj.values, result.values)
+        else:
+            assert np.may_share_memory(obj["A"].values, result["A"].values)
+
         result.iloc[key] = 0
-        assert obj.iloc[key] == 0
+        if using_copy_on_write:
+            assert obj.iloc[key] == 1
+        else:
+            assert obj.iloc[key] == 0
+            # set back to 1 for test below
+            result.iloc[key] = 1
 
         # Now we do copy.
         result = obj.set_flags(
             copy=True, allows_duplicate_labels=allows_duplicate_labels
         )
         result.iloc[key] = 10
-        assert obj.iloc[key] == 0
+        assert obj.iloc[key] == 1
 
     def test_constructor_expanddim(self):
         # GH#33628 accessing _constructor_expanddim should not raise NotImplementedError
@@ -370,8 +379,3 @@ class TestDataFrameMisc:
         df = DataFrame()
         with tm.assert_produces_warning(None):
             inspect.getmembers(df)
-
-    def test_dataframe_iteritems_deprecated(self):
-        df = DataFrame([1])
-        with tm.assert_produces_warning(FutureWarning):
-            next(df.iteritems())

@@ -6,6 +6,7 @@ from pandas import (
     MultiIndex,
     Series,
     Timestamp,
+    date_range,
 )
 
 from .pandas_vb_common import tm
@@ -48,7 +49,6 @@ def list_of_lists_with_none(arr):
 
 
 class SeriesConstructors:
-
     param_names = ["data_fmt", "with_index", "dtype"]
     params = [
         [
@@ -119,6 +119,29 @@ class MultiIndexConstructor:
 
     def time_multiindex_from_iterables(self):
         MultiIndex.from_product(self.iterables)
+
+
+class DatetimeIndexConstructor:
+    def setup(self):
+        N = 20_000
+        dti = date_range("1900-01-01", periods=N)
+
+        self.list_of_timestamps = dti.tolist()
+        self.list_of_dates = dti.date.tolist()
+        self.list_of_datetimes = dti.to_pydatetime().tolist()
+        self.list_of_str = dti.strftime("%Y-%m-%d").tolist()
+
+    def time_from_list_of_timestamps(self):
+        DatetimeIndex(self.list_of_timestamps)
+
+    def time_from_list_of_dates(self):
+        DatetimeIndex(self.list_of_dates)
+
+    def time_from_list_of_datetimes(self):
+        DatetimeIndex(self.list_of_datetimes)
+
+    def time_from_list_of_str(self):
+        DatetimeIndex(self.list_of_str)
 
 
 from .pandas_vb_common import setup  # noqa: F401 isort:skip

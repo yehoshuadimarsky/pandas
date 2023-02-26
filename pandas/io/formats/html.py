@@ -6,6 +6,7 @@ from __future__ import annotations
 from textwrap import dedent
 from typing import (
     Any,
+    Final,
     Hashable,
     Iterable,
     Mapping,
@@ -39,7 +40,7 @@ class HTMLFormatter:
     and this class responsible for only producing html markup.
     """
 
-    indent_delta = 2
+    indent_delta: Final = 2
 
     def __init__(
         self,
@@ -429,7 +430,6 @@ class HTMLFormatter:
 
         row: list[str] = []
         for i in range(nrows):
-
             if is_truncated_vertically and i == (self.fmt.tr_row_num):
                 str_sep_row = ["..."] * len(row)
                 self.write_tr(
@@ -521,7 +521,7 @@ class HTMLFormatter:
                     level_lengths[lnum] = rec_new
 
                 level_lengths[inner_lvl][ins_row] = 1
-                for ix_col in range(len(fmt_values)):
+                for ix_col in fmt_values:
                     fmt_values[ix_col].insert(ins_row, "...")
                 nrows += 1
 

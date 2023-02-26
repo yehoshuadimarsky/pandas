@@ -9,9 +9,10 @@ If you need to make sure options are available even before a certain
 module is imported, register them here rather than in the module.
 
 """
+from __future__ import annotations
+
 import os
 from typing import Callable
-import warnings
 
 import pandas._config.config as cf
 from pandas._config.config import (
@@ -24,8 +25,6 @@ from pandas._config.config import (
     is_str,
     is_text,
 )
-
-from pandas.util._exceptions import find_stack_level
 
 # compute
 
@@ -128,11 +127,11 @@ pc_max_cols_doc = """
     a summary view. 'None' value means unlimited.
 
     In case python/IPython is running in a terminal and `large_repr`
-    equals 'truncate' this can be set to 0 and pandas will auto-detect
+    equals 'truncate' this can be set to 0 or None and pandas will auto-detect
     the width of the terminal and print a truncated object which fits
     the screen width. The IPython notebook, IPython qtconsole, or IDLE
     do not run in a terminal and hence it is not possible to do
-    correct auto-detection.
+    correct auto-detection and defaults to 20.
 """
 
 pc_max_categories_doc = """
@@ -211,13 +210,6 @@ pc_ambiguous_as_wide_doc = """
     (default: False)
 """
 
-pc_latex_repr_doc = """
-: boolean
-    Whether to produce a latex DataFrame representation for jupyter
-    environments that support it.
-    (default: False)
-"""
-
 pc_table_schema_doc = """
 : boolean
     Whether to publish a Table Schema representation for frontends
@@ -259,7 +251,7 @@ pc_width_doc = """
 
 pc_chop_threshold_doc = """
 : float or None
-    if set to a float value, all float values smaller then the given threshold
+    if set to a float value, all float values smaller than the given threshold
     will be displayed as exactly 0 by repr and friends.
 """
 
@@ -291,41 +283,6 @@ pc_memory_usage_doc = """
 : bool, string or None
     This specifies if the memory usage of a DataFrame should be displayed when
     df.info() is called. Valid values True,False,'deep'
-"""
-
-pc_latex_escape = """
-: bool
-    This specifies if the to_latex method of a Dataframe uses escapes special
-    characters.
-    Valid values: False,True
-"""
-
-pc_latex_longtable = """
-:bool
-    This specifies if the to_latex method of a Dataframe uses the longtable
-    format.
-    Valid values: False,True
-"""
-
-pc_latex_multicolumn = """
-: bool
-    This specifies if the to_latex method of a Dataframe uses multicolumns
-    to pretty-print MultiIndex columns.
-    Valid values: False,True
-"""
-
-pc_latex_multicolumn_format = """
-: string
-    This specifies the format for multicolumn headers.
-    Can be surrounded with '|'.
-    Valid values: 'l', 'c', 'r', 'p{<width>}'
-"""
-
-pc_latex_multirow = """
-: bool
-    This specifies if the to_latex method of a Dataframe uses multirows
-    to pretty-print MultiIndex rows.
-    Valid values: False,True
 """
 
 
@@ -361,17 +318,6 @@ with cf.config_prefix("display"):
         float_format_doc,
         validator=is_one_of_factory([None, is_callable]),
     )
-
-    def _deprecate_column_space(key):
-        warnings.warn(
-            "column_space is deprecated and will be removed "
-            "in a future version. Use df.to_string(col_space=...) "
-            "instead.",
-            FutureWarning,
-            stacklevel=find_stack_level(),
-        )
-
-    cf.register_option("column_space", 12, validator=is_int, cb=_deprecate_column_space)
     cf.register_option(
         "max_info_rows",
         1690785,
@@ -387,24 +333,11 @@ with cf.config_prefix("display"):
     )
     cf.register_option("max_categories", 8, pc_max_categories_doc, validator=is_int)
 
-    def _deprecate_negative_int_max_colwidth(key):
-        value = cf.get_option(key)
-        if value is not None and value < 0:
-            warnings.warn(
-                "Passing a negative integer is deprecated in version 1.0 and "
-                "will not be supported in future version. Instead, use None "
-                "to not limit the column width.",
-                FutureWarning,
-                stacklevel=find_stack_level(),
-            )
-
     cf.register_option(
-        # TODO(2.0): change `validator=is_nonnegative_int` see GH#31569
         "max_colwidth",
         50,
         max_colwidth_doc,
-        validator=is_instance_factory([type(None), int]),
-        cb=_deprecate_negative_int_max_colwidth,
+        validator=is_nonnegative_int,
     )
     if is_terminal():
         max_cols = 0  # automatically determine optimal number of columns
@@ -450,16 +383,6 @@ with cf.config_prefix("display"):
     cf.register_option(
         "unicode.ambiguous_as_wide", False, pc_east_asian_width_doc, validator=is_bool
     )
-    cf.register_option("latex.repr", False, pc_latex_repr_doc, validator=is_bool)
-    cf.register_option("latex.escape", True, pc_latex_escape, validator=is_bool)
-    cf.register_option("latex.longtable", False, pc_latex_longtable, validator=is_bool)
-    cf.register_option(
-        "latex.multicolumn", True, pc_latex_multicolumn, validator=is_bool
-    )
-    cf.register_option(
-        "latex.multicolumn_format", "l", pc_latex_multicolumn, validator=is_text
-    )
-    cf.register_option("latex.multirow", False, pc_latex_multirow, validator=is_bool)
     cf.register_option(
         "html.table_schema",
         False,
@@ -483,12 +406,6 @@ tc_sim_interactive_doc = """
 with cf.config_prefix("mode"):
     cf.register_option("sim_interactive", False, tc_sim_interactive_doc)
 
-use_inf_as_null_doc = """
-: boolean
-    use_inf_as_null had been deprecated and will be removed in a future
-    version. Use `use_inf_as_na` instead.
-"""
-
 use_inf_as_na_doc = """
 : boolean
     True means treat None, NaN, INF, -INF as NA (old way),
@@ -508,14 +425,6 @@ def use_inf_as_na_cb(key) -> None:
 
 with cf.config_prefix("mode"):
     cf.register_option("use_inf_as_na", False, use_inf_as_na_doc, cb=use_inf_as_na_cb)
-    cf.register_option(
-        "use_inf_as_null", False, use_inf_as_null_doc, cb=use_inf_as_na_cb
-    )
-
-
-cf.deprecate_option(
-    "mode.use_inf_as_null", msg=use_inf_as_null_doc, rkey="mode.use_inf_as_na"
-)
 
 
 data_manager_doc = """
@@ -534,6 +443,26 @@ with cf.config_prefix("mode"):
         os.environ.get("PANDAS_DATA_MANAGER", "block"),
         data_manager_doc,
         validator=is_one_of_factory(["block", "array"]),
+    )
+
+
+# TODO better name?
+copy_on_write_doc = """
+: bool
+    Use new copy-view behaviour using Copy-on-Write. Defaults to False,
+    unless overridden by the 'PANDAS_COPY_ON_WRITE' environment variable
+    (if set to "1" for True, needs to be set before pandas is imported).
+"""
+
+
+with cf.config_prefix("mode"):
+    cf.register_option(
+        "copy_on_write",
+        # Get the default from an environment variable, if set, otherwise defaults
+        # to False. This environment variable can be set for testing.
+        os.environ.get("PANDAS_COPY_ON_WRITE", "0") == "1",
+        copy_on_write_doc,
+        validator=is_bool,
     )
 
 
@@ -558,6 +487,13 @@ string_storage_doc = """
     The default storage for StringDtype.
 """
 
+dtype_backend_doc = """
+: string
+    The nullable dtype implementation to return. Only applicable to certain
+    operations where documented. Available options: 'pandas', 'pyarrow',
+    the default is 'pandas'.
+"""
+
 with cf.config_prefix("mode"):
     cf.register_option(
         "string_storage",
@@ -565,6 +501,28 @@ with cf.config_prefix("mode"):
         string_storage_doc,
         validator=is_one_of_factory(["python", "pyarrow"]),
     )
+    cf.register_option(
+        "dtype_backend",
+        "pandas",
+        dtype_backend_doc,
+        validator=is_one_of_factory(["pandas", "pyarrow"]),
+    )
+
+
+nullable_dtypes_doc = """
+: bool
+    If nullable dtypes should be returned. This is only applicable to functions
+    where the ``use_nullable_dtypes`` keyword is implemented.
+"""
+
+with cf.config_prefix("mode"):
+    cf.register_option(
+        "nullable_dtypes",
+        False,
+        nullable_dtypes_doc,
+        validator=is_bool,
+    )
+
 
 # Set up the io.excel specific reader configuration.
 reader_engine_doc = """
@@ -629,26 +587,10 @@ writer_engine_doc = """
     auto, {others}.
 """
 
-_xls_options = ["xlwt"]
 _xlsm_options = ["openpyxl"]
 _xlsx_options = ["openpyxl", "xlsxwriter"]
 _ods_options = ["odf"]
 
-
-with cf.config_prefix("io.excel.xls"):
-    cf.register_option(
-        "writer",
-        "auto",
-        writer_engine_doc.format(ext="xls", others=", ".join(_xls_options)),
-        validator=str,
-    )
-cf.deprecate_option(
-    "io.excel.xls.writer",
-    msg="As the xlwt package is no longer maintained, the xlwt engine will be "
-    "removed in a future version of pandas. This is the only engine in pandas that "
-    "supports writing in the xls format. Install openpyxl and write to an "
-    "xlsx file instead.",
-)
 
 with cf.config_prefix("io.excel.xlsm"):
     cf.register_option(

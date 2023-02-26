@@ -4,11 +4,13 @@ on:
   push:
     branches:
       - main
-      - 1.4.x
+      - 2.0.x
+      - 1.5.x
   pull_request:
     branches:
       - main
-      - 1.4.x
+      - 2.0.x
+      - 1.5.x
     paths-ignore:
       - "doc/**"
 
@@ -17,7 +19,7 @@ permissions:
 
 jobs:
   pytest:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -38,9 +40,11 @@ jobs:
           /opt/python/cp38-cp38/bin/python -m venv ~/virtualenvs/pandas-dev && \
           . ~/virtualenvs/pandas-dev/bin/activate && \
           python -m pip install --no-deps -U pip wheel 'setuptools<60.0.0' && \
-          pip install cython numpy python-dateutil pytz pytest pytest-xdist pytest-asyncio>=0.17 hypothesis && \
-          python setup.py build_ext -q -j2 && \
+          python -m pip install versioneer[toml] && \
+          python -m pip install cython numpy python-dateutil pytz pytest>=7.0.0 pytest-xdist>=2.2.0 pytest-asyncio>=0.17 hypothesis>=6.34.2 && \
+          python setup.py build_ext -q -j1 && \
           python -m pip install --no-build-isolation --no-use-pep517 -e . && \
+          python -m pip list && \
           export PANDAS_CI=1 && \
           pytest -m 'not slow and not network and not clipboard and not single_cpu' pandas --junitxml=test-data.xml"
 
@@ -50,3 +54,7 @@ jobs:
           name: Test results
           path: test-data.xml
         if: failure()
+    concurrency:
+      # https://github.community/t/concurrecy-not-work-for-push/183068/7
+      group: ${{ github.event_name == 'push' && github.run_number || github.ref }}-32bit
+      cancel-in-progress: true

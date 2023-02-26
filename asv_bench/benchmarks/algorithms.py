@@ -15,7 +15,6 @@ for imp in ["pandas.util", "pandas.tools.hashing"]:
 
 
 class Factorize:
-
     params = [
         [True, False],
         [True, False],
@@ -65,7 +64,6 @@ class Factorize:
 
 
 class Duplicated:
-
     params = [
         [True, False],
         ["first", "last", False],
@@ -93,6 +91,28 @@ class Duplicated:
 
     def time_duplicated(self, unique, keep, dtype):
         self.idx.duplicated(keep=keep)
+
+
+class DuplicatedMaskedArray:
+    params = [
+        [True, False],
+        ["first", "last", False],
+        ["Int64", "Float64"],
+    ]
+    param_names = ["unique", "keep", "dtype"]
+
+    def setup(self, unique, keep, dtype):
+        N = 10**5
+        data = pd.Series(np.arange(N), dtype=dtype)
+        data[list(range(1, N, 100))] = pd.NA
+        if not unique:
+            data = data.repeat(5)
+        self.ser = data
+        # cache is_unique
+        self.ser.is_unique
+
+    def time_duplicated(self, unique, keep, dtype):
+        self.ser.duplicated(keep=keep)
 
 
 class Hashing:

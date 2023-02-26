@@ -24,7 +24,7 @@ class TestCategoricalIndexRepr:
         expected = """CategoricalIndex(['a', 'bb', 'ccc', 'a', 'bb', 'ccc', 'a', 'bb', 'ccc', 'a',
                   'bb', 'ccc', 'a', 'bb', 'ccc', 'a', 'bb', 'ccc', 'a', 'bb',
                   'ccc', 'a', 'bb', 'ccc', 'a', 'bb', 'ccc', 'a', 'bb', 'ccc'],
-                 categories=['a', 'bb', 'ccc'], ordered=False, dtype='category')"""
+                 categories=['a', 'bb', 'ccc'], ordered=False, dtype='category')"""  # noqa:E501
 
         assert repr(idx) == expected
 
@@ -55,7 +55,7 @@ class TestCategoricalIndexRepr:
         expected = """CategoricalIndex(['あ', 'いい', 'ううう', 'あ', 'いい', 'ううう', 'あ', 'いい', 'ううう', 'あ',
                   'いい', 'ううう', 'あ', 'いい', 'ううう', 'あ', 'いい', 'ううう', 'あ', 'いい',
                   'ううう', 'あ', 'いい', 'ううう', 'あ', 'いい', 'ううう', 'あ', 'いい', 'ううう'],
-                 categories=['あ', 'いい', 'ううう'], ordered=False, dtype='category')"""
+                 categories=['あ', 'いい', 'ううう'], ordered=False, dtype='category')"""  # noqa:E501
 
         assert repr(idx) == expected
 
@@ -78,7 +78,6 @@ class TestCategoricalIndexRepr:
 
         # Enable Unicode option -----------------------------------------
         with cf.option_context("display.unicode.east_asian_width", True):
-
             # short
             idx = CategoricalIndex(["あ", "いい", "ううう"])
             expected = """CategoricalIndex(['あ', 'いい', 'ううう'], categories=['あ', 'いい', 'ううう'], ordered=False, dtype='category')"""  # noqa:E501
@@ -90,7 +89,7 @@ class TestCategoricalIndexRepr:
                   'ううう', 'あ', 'いい', 'ううう', 'あ', 'いい', 'ううう',
                   'あ', 'いい', 'ううう', 'あ', 'いい', 'ううう', 'あ', 'いい',
                   'ううう', 'あ', 'いい', 'ううう', 'あ', 'いい', 'ううう'],
-                 categories=['あ', 'いい', 'ううう'], ordered=False, dtype='category')"""
+                 categories=['あ', 'いい', 'ううう'], ordered=False, dtype='category')"""  # noqa:E501
 
             assert repr(idx) == expected
 

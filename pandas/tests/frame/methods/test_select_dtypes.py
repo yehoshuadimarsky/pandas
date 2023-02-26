@@ -327,7 +327,6 @@ class TestSelectDtypes:
             df.select_dtypes(exclude=["datetime64[as]"])
 
     def test_select_dtypes_datetime_with_tz(self):
-
         df2 = DataFrame(
             {
                 "A": Timestamp("20130102", tz="US/Eastern"),
@@ -441,3 +440,27 @@ class TestSelectDtypes:
         df = df.astype(dtype_dict)
         result = df.select_dtypes(include=float_dtypes)
         tm.assert_frame_equal(result, expected)
+
+    def test_np_bool_ea_boolean_include_number(self):
+        # GH 46870
+        df = DataFrame(
+            {
+                "a": [1, 2, 3],
+                "b": pd.Series([True, False, True], dtype="boolean"),
+                "c": np.array([True, False, True]),
+                "d": pd.Categorical([True, False, True]),
+                "e": pd.arrays.SparseArray([True, False, True]),
+            }
+        )
+        result = df.select_dtypes(include="number")
+        expected = DataFrame({"a": [1, 2, 3]})
+        tm.assert_frame_equal(result, expected)
+
+    def test_select_dtypes_no_view(self):
+        # https://github.com/pandas-dev/pandas/issues/48090
+        # result of this method is not a view on the original dataframe
+        df = DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+        df_orig = df.copy()
+        result = df.select_dtypes(include=["number"])
+        result.iloc[0, 0] = 0
+        tm.assert_frame_equal(df, df_orig)

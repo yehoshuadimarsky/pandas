@@ -102,7 +102,7 @@ class CSVFormatter:
         return self.fmt.decimal
 
     @property
-    def header(self) -> bool | Sequence[str]:
+    def header(self) -> bool | list[str]:
         return self.fmt.header
 
     @property
@@ -213,8 +213,7 @@ class CSVFormatter:
                 raise ValueError(
                     f"Writing {len(self.cols)} cols but got {len(self.header)} aliases"
                 )
-            else:
-                return self.header
+            return self.header
         else:
             # self.cols is an ndarray derived from Index._format_native_types,
             #  so its entries are strings, i.e. hashable
@@ -246,7 +245,6 @@ class CSVFormatter:
             compression=self.compression,
             storage_options=self.storage_options,
         ) as handles:
-
             # Note: self.encoding is irrelevant here
             self.writer = csvlib.writer(
                 handles.handle,

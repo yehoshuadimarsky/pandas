@@ -27,17 +27,25 @@ Exceptions and warnings
    errors.AbstractMethodError
    errors.AccessorRegistrationWarning
    errors.AttributeConflictWarning
+   errors.CategoricalConversionWarning
+   errors.ChainedAssignmentError
    errors.ClosedFileError
    errors.CSSWarning
+   errors.DatabaseError
    errors.DataError
    errors.DtypeWarning
    errors.DuplicateLabelError
    errors.EmptyDataError
    errors.IncompatibilityWarning
    errors.IndexingError
+   errors.InvalidColumnName
+   errors.InvalidComparison
    errors.InvalidIndexError
+   errors.InvalidVersion
    errors.IntCastingNaNError
+   errors.LossySetitemError
    errors.MergeError
+   errors.NoBufferPresent
    errors.NullFrequencyError
    errors.NumbaUtilError
    errors.NumExprClobberingError
@@ -48,6 +56,7 @@ Exceptions and warnings
    errors.ParserWarning
    errors.PerformanceWarning
    errors.PossibleDataLossError
+   errors.PossiblePrecisionLoss
    errors.PyperclipException
    errors.PyperclipWindowsException
    errors.SettingWithCopyError
@@ -56,6 +65,7 @@ Exceptions and warnings
    errors.UndefinedVariableError
    errors.UnsortedIndexError
    errors.UnsupportedFunctionCall
+   errors.ValueLabelTypeMismatch
 
 Bug report function
 -------------------

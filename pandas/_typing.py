@@ -10,7 +10,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
-    Collection,
     Dict,
     Hashable,
     Iterator,
@@ -40,10 +39,15 @@ if TYPE_CHECKING:
         Timedelta,
         Timestamp,
     )
+    from pandas._libs.tslibs import BaseOffset
 
     from pandas.core.dtypes.dtypes import ExtensionDtype
 
     from pandas import Interval
+    from pandas.arrays import (
+        DatetimeArray,
+        TimedeltaArray,
+    )
     from pandas.core.arrays.base import ExtensionArray
     from pandas.core.frame import DataFrame
     from pandas.core.generic import NDFrame
@@ -64,11 +68,20 @@ if TYPE_CHECKING:
     from pandas.core.window.rolling import BaseWindow
 
     from pandas.io.formats.format import EngFormatter
-    from pandas.tseries.offsets import DateOffset
+
+    ScalarLike_co = Union[
+        int,
+        float,
+        complex,
+        str,
+        bytes,
+        np.generic,
+    ]
 
     # numpy compatible types
-    NumpyValueArrayLike = Union[npt._ScalarLike_co, npt.ArrayLike]
-    NumpySorter = Optional[npt._ArrayLikeInt_co]
+    NumpyValueArrayLike = Union[ScalarLike_co, npt.ArrayLike]
+    # Name "npt._ArrayLikeInt_co" is not defined  [name-defined]
+    NumpySorter = Optional[npt._ArrayLikeInt_co]  # type: ignore[name-defined]
 
 else:
     npt: Any = None
@@ -79,10 +92,18 @@ HashableT = TypeVar("HashableT", bound=Hashable)
 
 ArrayLike = Union["ExtensionArray", np.ndarray]
 AnyArrayLike = Union[ArrayLike, "Index", "Series"]
+TimeArrayLike = Union["DatetimeArray", "TimedeltaArray"]
+
+# list-like
+
+# Cannot use `Sequence` because a string is a sequence, and we don't want to
+# accept that.  Could refine if https://github.com/python/typing/issues/256 is
+# resolved to differentiate between Sequence[str] and str
+ListLike = Union[AnyArrayLike, List, range]
 
 # scalars
 
-PythonScalar = Union[str, int, float, bool]
+PythonScalar = Union[str, float, bool]
 DatetimeLikeScalar = Union["Period", "Timestamp", "Timedelta"]
 PandasScalar = Union["Period", "Timestamp", "Timedelta", "Interval"]
 Scalar = Union[PythonScalar, PandasScalar, np.datetime64, np.timedelta64, datetime]
@@ -92,10 +113,10 @@ IntStrT = TypeVar("IntStrT", int, str)
 # timestamp and timedelta convertible types
 
 TimestampConvertibleTypes = Union[
-    "Timestamp", datetime, np.datetime64, int, np.int64, float, str
+    "Timestamp", datetime, np.datetime64, np.int64, float, str
 ]
 TimedeltaConvertibleTypes = Union[
-    "Timedelta", timedelta, np.timedelta64, int, np.int64, float, str
+    "Timedelta", timedelta, np.timedelta64, np.int64, float, str
 ]
 Timezone = Union[str, tzinfo]
 
@@ -107,15 +128,16 @@ NDFrameT = TypeVar("NDFrameT", bound="NDFrame")
 
 NumpyIndexT = TypeVar("NumpyIndexT", np.ndarray, "Index")
 
-Axis = Union[str, int]
+AxisInt = int
+Axis = Union[AxisInt, Literal["index", "columns", "rows"]]
 IndexLabel = Union[Hashable, Sequence[Hashable]]
 Level = Hashable
 Shape = Tuple[int, ...]
 Suffixes = Tuple[Optional[str], Optional[str]]
 Ordered = Optional[bool]
 JSONSerializable = Optional[Union[PythonScalar, List, Dict]]
-Frequency = Union[str, "DateOffset"]
-Axes = Collection[Any]
+Frequency = Union[str, "BaseOffset"]
+Axes = ListLike
 
 RandomState = Union[
     int,
@@ -126,7 +148,7 @@ RandomState = Union[
 ]
 
 # dtypes
-NpDtype = Union[str, np.dtype, type_t[Union[str, float, int, complex, bool, object]]]
+NpDtype = Union[str, np.dtype, type_t[Union[str, complex, bool, object]]]
 Dtype = Union["ExtensionDtype", NpDtype]
 AstypeArg = Union["ExtensionDtype", "npt.DTypeLike"]
 # DtypeArg specifies all allowable dtypes in a functions its dtype argument
@@ -178,18 +200,14 @@ AggObjType = Union[
 PythonFuncType = Callable[[Any], Any]
 
 # filenames and file-like-objects
-AnyStr_cov = TypeVar("AnyStr_cov", str, bytes, covariant=True)
-AnyStr_con = TypeVar("AnyStr_con", str, bytes, contravariant=True)
+AnyStr_co = TypeVar("AnyStr_co", str, bytes, covariant=True)
+AnyStr_contra = TypeVar("AnyStr_contra", str, bytes, contravariant=True)
 
 
 class BaseBuffer(Protocol):
     @property
     def mode(self) -> str:
         # for _get_filepath_or_buffer
-        ...
-
-    def fileno(self) -> int:
-        # for _MMapWrapper
         ...
 
     def seek(self, __offset: int, __whence: int = ...) -> int:
@@ -206,14 +224,14 @@ class BaseBuffer(Protocol):
         ...
 
 
-class ReadBuffer(BaseBuffer, Protocol[AnyStr_cov]):
-    def read(self, __n: int | None = ...) -> AnyStr_cov:
+class ReadBuffer(BaseBuffer, Protocol[AnyStr_co]):
+    def read(self, __n: int = ...) -> AnyStr_co:
         # for BytesIOWrapper, gzip.GzipFile, bz2.BZ2File
         ...
 
 
-class WriteBuffer(BaseBuffer, Protocol[AnyStr_con]):
-    def write(self, __b: AnyStr_con) -> Any:
+class WriteBuffer(BaseBuffer, Protocol[AnyStr_contra]):
+    def write(self, __b: AnyStr_contra) -> Any:
         # for gzip.GzipFile, bz2.BZ2File
         ...
 
@@ -223,7 +241,7 @@ class WriteBuffer(BaseBuffer, Protocol[AnyStr_con]):
 
 
 class ReadPickleBuffer(ReadBuffer[bytes], Protocol):
-    def readline(self) -> AnyStr_cov:
+    def readline(self) -> bytes:
         ...
 
 
@@ -232,12 +250,16 @@ class WriteExcelBuffer(WriteBuffer[bytes], Protocol):
         ...
 
 
-class ReadCsvBuffer(ReadBuffer[AnyStr_cov], Protocol):
-    def __iter__(self) -> Iterator[AnyStr_cov]:
+class ReadCsvBuffer(ReadBuffer[AnyStr_co], Protocol):
+    def __iter__(self) -> Iterator[AnyStr_co]:
         # for engine=python
         ...
 
-    def readline(self) -> AnyStr_cov:
+    def fileno(self) -> int:
+        # for _MMapWrapper
+        ...
+
+    def readline(self) -> AnyStr_co:
         # for engine=python
         ...
 
@@ -309,12 +331,15 @@ WindowingRankType = Literal["average", "min", "max"]
 # read_csv engines
 CSVEngine = Literal["c", "python", "pyarrow", "python-fwf"]
 
+# read_json engines
+JSONEngine = Literal["ujson", "pyarrow"]
+
 # read_xml parsers
 XMLParsers = Literal["lxml", "etree"]
 
 # Interval closed type
 IntervalLeftRight = Literal["left", "right"]
-IntervalInclusiveType = Union[IntervalLeftRight, Literal["both", "neither"]]
+IntervalClosedType = Union[IntervalLeftRight, Literal["both", "neither"]]
 
 # datetime and NaTType
 DatetimeNaTType = Union[datetime, "NaTType"]
@@ -329,3 +354,26 @@ QuantileInterpolation = Literal["linear", "lower", "higher", "midpoint", "neares
 
 # plotting
 PlottingOrientation = Literal["horizontal", "vertical"]
+
+# dropna
+AnyAll = Literal["any", "all"]
+
+# merge
+MergeHow = Literal["left", "right", "inner", "outer", "cross"]
+
+# join
+JoinHow = Literal["left", "right", "inner", "outer"]
+
+MatplotlibColor = Union[str, Sequence[float]]
+TimeGrouperOrigin = Union[
+    "Timestamp", Literal["epoch", "start", "start_day", "end", "end_day"]
+]
+TimeAmbiguous = Union[Literal["infer", "NaT", "raise"], "npt.NDArray[np.bool_]"]
+TimeNonexistent = Union[
+    Literal["shift_forward", "shift_backward", "NaT", "raise"], timedelta
+]
+DropKeep = Literal["first", "last", False]
+CorrelationMethod = Union[
+    Literal["pearson", "kendall", "spearman"], Callable[[np.ndarray, np.ndarray], float]
+]
+AlignJoin = Literal["outer", "inner", "left", "right"]

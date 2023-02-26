@@ -125,7 +125,6 @@ class TestMultiIndexSetItem:
     # all NaNs -> doesn't work in the "split" path (also for BlockManager actually)
     @td.skip_array_manager_not_yet_implemented
     def test_multiindex_setitem(self):
-
         # GH 3738
         # setting with a multi-index right hand side
         arrays = [
@@ -149,7 +148,6 @@ class TestMultiIndexSetItem:
             df.loc["bar"] *= 2
 
     def test_multiindex_setitem2(self):
-
         # from SO
         # https://stackoverflow.com/questions/24572040/pandas-access-the-level-of-multiindex-for-inplace-operation
         df_orig = DataFrame.from_dict(
@@ -181,7 +179,6 @@ class TestMultiIndexSetItem:
         tm.assert_frame_equal(df, expected)
 
     def test_multiindex_assignment(self):
-
         # GH3777 part 2
 
         # mixed dtype
@@ -196,7 +193,7 @@ class TestMultiIndexSetItem:
         df.loc[4, "d"] = arr
         tm.assert_series_equal(df.loc[4, "d"], Series(arr, index=[8, 10], name="d"))
 
-    def test_multiindex_assignment_single_dtype(self, using_array_manager):
+    def test_multiindex_assignment_single_dtype(self, using_copy_on_write):
         # GH3777 part 2b
         # single dtype
         arr = np.array([0.0, 1.0])
@@ -216,7 +213,8 @@ class TestMultiIndexSetItem:
         tm.assert_series_equal(result, exp)
 
         # extra check for inplace-ness
-        tm.assert_numpy_array_equal(view, exp.values)
+        if not using_copy_on_write:
+            tm.assert_numpy_array_equal(view, exp.values)
 
         # arr + 0.5 cannot be cast losslessly to int, so we upcast
         df.loc[4, "c"] = arr + 0.5
@@ -343,7 +341,6 @@ class TestMultiIndexSetItem:
         tm.assert_frame_equal(cp["a"], cp["b"])
 
     def test_frame_setitem_multi_column2(self):
-
         # ---------------------------------------
         # GH#1803
         columns = MultiIndex.from_tuples([("A", "1"), ("A", "2"), ("B", "1")])
@@ -405,16 +402,23 @@ class TestMultiIndexSetItem:
         reindexed = dft.reindex(columns=[("foo", "two")])
         tm.assert_series_equal(reindexed["foo", "two"], s > s.median())
 
-    def test_set_column_scalar_with_loc(self, multiindex_dataframe_random_data):
+    def test_set_column_scalar_with_loc(
+        self, multiindex_dataframe_random_data, using_copy_on_write
+    ):
         frame = multiindex_dataframe_random_data
         subset = frame.index[[1, 4, 5]]
 
         frame.loc[subset] = 99
         assert (frame.loc[subset].values == 99).all()
 
+        frame_original = frame.copy()
         col = frame["B"]
         col[subset] = 97
-        assert (frame.loc[subset, "B"] == 97).all()
+        if using_copy_on_write:
+            # chained setitem doesn't work with CoW
+            tm.assert_frame_equal(frame, frame_original)
+        else:
+            assert (frame.loc[subset, "B"] == 97).all()
 
     def test_nonunique_assignment_1750(self):
         df = DataFrame(
@@ -429,7 +433,6 @@ class TestMultiIndexSetItem:
         assert (df.xs((1, 1))["C"] == "_").all()
 
     def test_astype_assignment_with_dups(self):
-
         # GH 4686
         # assignment with dups that has a dtype change
         cols = MultiIndex.from_tuples([("A", "1"), ("B", "1"), ("A", "2")])
@@ -487,21 +490,33 @@ def test_frame_setitem_view_direct(multiindex_dataframe_random_data):
     assert (df["foo"].values == 0).all()
 
 
-def test_frame_setitem_copy_raises(multiindex_dataframe_random_data):
+def test_frame_setitem_copy_raises(
+    multiindex_dataframe_random_data, using_copy_on_write
+):
     # will raise/warn as its chained assignment
     df = multiindex_dataframe_random_data.T
-    msg = "A value is trying to be set on a copy of a slice from a DataFrame"
-    with pytest.raises(SettingWithCopyError, match=msg):
-        df["foo"]["one"] = 2
+    if using_copy_on_write:
+        with tm.raises_chained_assignment_error():
+            df["foo"]["one"] = 2
+    else:
+        msg = "A value is trying to be set on a copy of a slice from a DataFrame"
+        with pytest.raises(SettingWithCopyError, match=msg):
+            df["foo"]["one"] = 2
 
 
-def test_frame_setitem_copy_no_write(multiindex_dataframe_random_data):
+def test_frame_setitem_copy_no_write(
+    multiindex_dataframe_random_data, using_copy_on_write
+):
     frame = multiindex_dataframe_random_data.T
     expected = frame
     df = frame.copy()
-    msg = "A value is trying to be set on a copy of a slice from a DataFrame"
-    with pytest.raises(SettingWithCopyError, match=msg):
-        df["foo"]["one"] = 2
+    if using_copy_on_write:
+        with tm.raises_chained_assignment_error():
+            df["foo"]["one"] = 2
+    else:
+        msg = "A value is trying to be set on a copy of a slice from a DataFrame"
+        with pytest.raises(SettingWithCopyError, match=msg):
+            df["foo"]["one"] = 2
 
     result = df
     tm.assert_frame_equal(result, expected)

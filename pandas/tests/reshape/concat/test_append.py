@@ -172,7 +172,7 @@ class TestAppend:
         Index(list("abc")),
         pd.CategoricalIndex("A B C".split()),
         pd.CategoricalIndex("D E F".split(), ordered=True),
-        pd.IntervalIndex.from_breaks([7, 8, 9, 10], inclusive="right"),
+        pd.IntervalIndex.from_breaks([7, 8, 9, 10]),
         pd.DatetimeIndex(
             [
                 dt.datetime(2013, 1, 3, 0, 0),
@@ -244,7 +244,6 @@ class TestAppend:
         tm.assert_frame_equal(result, expected)
 
     def test_append_dtype_coerce(self, sort):
-
         # GH 4993
         # appending with datetime will incorrectly convert datetime64
 

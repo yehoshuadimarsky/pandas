@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from io import TextIOWrapper
 from typing import (
+    TYPE_CHECKING,
     Hashable,
     Mapping,
     Sequence,
@@ -11,13 +11,16 @@ import warnings
 
 import numpy as np
 
-import pandas._libs.parsers as parsers
+from pandas._config.config import get_option
+
+from pandas._libs import parsers
 from pandas._typing import (
     ArrayLike,
     DtypeArg,
     DtypeObj,
     ReadCsvBuffer,
 )
+from pandas.compat._optional import import_optional_dependency
 from pandas.errors import DtypeWarning
 from pandas.util._exceptions import find_stack_level
 
@@ -28,16 +31,23 @@ from pandas.core.dtypes.common import (
 from pandas.core.dtypes.concat import union_categoricals
 from pandas.core.dtypes.dtypes import ExtensionDtype
 
-from pandas import (
-    Index,
-    MultiIndex,
-)
 from pandas.core.indexes.api import ensure_index_from_sequences
 
+from pandas.io.common import (
+    dedup_names,
+    is_potential_multi_index,
+)
 from pandas.io.parsers.base_parser import (
     ParserBase,
+    ParserError,
     is_index_col,
 )
+
+if TYPE_CHECKING:
+    from pandas import (
+        Index,
+        MultiIndex,
+    )
 
 
 class CParserWrapper(ParserBase):
@@ -63,28 +73,20 @@ class CParserWrapper(ParserBase):
         # Have to pass int, would break tests using TextReader directly otherwise :(
         kwds["on_bad_lines"] = self.on_bad_lines.value
 
-        # c-engine can cope with utf-8 bytes. Remove TextIOWrapper when its errors
-        # policy is the same as the one given to read_csv
-        if (
-            isinstance(src, TextIOWrapper)
-            and src.encoding == "utf-8"
-            and (src.errors or "strict") == kwds["encoding_errors"]
-        ):
-            # error: Incompatible types in assignment (expression has type "BinaryIO",
-            # variable has type "ReadCsvBuffer[str]")
-            src = src.buffer  # type: ignore[assignment]
-
         for key in (
             "storage_options",
             "encoding",
             "memory_map",
             "compression",
-            "error_bad_lines",
-            "warn_bad_lines",
         ):
             kwds.pop(key, None)
 
         kwds["dtype"] = ensure_dtype_objs(kwds.get("dtype", None))
+        dtype_backend = get_option("mode.dtype_backend")
+        kwds["dtype_backend"] = dtype_backend
+        if dtype_backend == "pyarrow":
+            # Fail here loudly instead of in cython after reading
+            import_optional_dependency("pyarrow")
         self._reader = parsers.TextReader(src, **kwds)
 
         self.unnamed_cols = self._reader.unnamed_cols
@@ -110,16 +112,7 @@ class CParserWrapper(ParserBase):
 
         # error: Cannot determine type of 'names'
         if self.names is None:  # type: ignore[has-type]
-            if self.prefix:
-                # error: Cannot determine type of 'names'
-                self.names = [  # type: ignore[has-type]
-                    f"{self.prefix}{i}" for i in range(self._reader.table_width)
-                ]
-            else:
-                # error: Cannot determine type of 'names'
-                self.names = list(  # type: ignore[has-type]
-                    range(self._reader.table_width)
-                )
+            self.names = list(range(self._reader.table_width))
 
         # gh-9755
         #
@@ -173,7 +166,6 @@ class CParserWrapper(ParserBase):
             if self._reader.leading_cols == 0 and is_index_col(
                 self.index_col  # type: ignore[has-type]
             ):
-
                 self._name_processed = True
                 (
                     index_names,
@@ -245,7 +237,10 @@ class CParserWrapper(ParserBase):
         except StopIteration:
             if self._first_chunk:
                 self._first_chunk = False
-                names = self._maybe_dedup_names(self.orig_names)
+                names = dedup_names(
+                    self.orig_names,
+                    is_potential_multi_index(self.orig_names, self.index_col),
+                )
                 index, columns, col_dict = self._get_empty_meta(
                     names,
                     self.index_col,
@@ -278,6 +273,13 @@ class CParserWrapper(ParserBase):
             # implicit index, no index names
             arrays = []
 
+            if self.index_col and self._reader.leading_cols != len(self.index_col):
+                raise ParserError(
+                    "Could not construct index. Requested to use "
+                    f"{len(self.index_col)} number of columns, but "
+                    f"{self._reader.leading_cols} left to parse."
+                )
+
             for i in range(self._reader.leading_cols):
                 if self.index_col is None:
                     values = data.pop(i)
@@ -292,7 +294,7 @@ class CParserWrapper(ParserBase):
             if self.usecols is not None:
                 names = self._filter_usecols(names)
 
-            names = self._maybe_dedup_names(names)
+            names = dedup_names(names, is_potential_multi_index(names, self.index_col))
 
             # rename dict keys
             data_tups = sorted(data.items())
@@ -314,7 +316,7 @@ class CParserWrapper(ParserBase):
             # assert for mypy, orig_names is List or None, None would error in list(...)
             assert self.orig_names is not None
             names = list(self.orig_names)
-            names = self._maybe_dedup_names(names)
+            names = dedup_names(names, is_potential_multi_index(names, self.index_col))
 
             if self.usecols is not None:
                 names = self._filter_usecols(names)
@@ -353,7 +355,10 @@ class CParserWrapper(ParserBase):
 
     def _maybe_parse_dates(self, values, index: int, try_parse_dates: bool = True):
         if try_parse_dates and self._should_parse_dates(index):
-            values = self._date_conv(values)
+            values = self._date_conv(
+                values,
+                col=self.index_names[index] if self.index_names is not None else None,
+            )
         return values
 
 
