@@ -12,6 +12,7 @@ from pandas.core.dtypes.cast import find_common_type
 
 from pandas import (
     CategoricalIndex,
+    DatetimeTZDtype,
     Index,
     MultiIndex,
     RangeIndex,
@@ -20,8 +21,6 @@ from pandas import (
 )
 import pandas._testing as tm
 from pandas.api.types import (
-    is_bool_dtype,
-    is_datetime64tz_dtype,
     is_signed_integer_dtype,
     pandas_dtype,
 )
@@ -193,7 +192,7 @@ class TestSetOps:
         intersect = first.intersection(second)
         assert tm.equalContents(intersect, second)
 
-        if is_datetime64tz_dtype(index.dtype):
+        if isinstance(index.dtype, DatetimeTZDtype):
             # The second.values below will drop tz, so the rest of this test
             #  is not applicable.
             return
@@ -220,7 +219,7 @@ class TestSetOps:
         union = first.union(second)
         assert tm.equalContents(union, everything)
 
-        if is_datetime64tz_dtype(index.dtype):
+        if isinstance(index.dtype, DatetimeTZDtype):
             # The second.values below will drop tz, so the rest of this test
             #  is not applicable.
             return
@@ -242,7 +241,7 @@ class TestSetOps:
     def test_difference_base(self, sort, index):
         first = index[2:]
         second = index[:4]
-        if is_bool_dtype(index):
+        if index.inferred_type == "boolean":
             # i think (TODO: be sure) there assumptions baked in about
             #  the index fixture that don't hold here?
             answer = set(first).difference(set(second))
@@ -575,6 +574,43 @@ def test_union_nan_in_both(dup):
     b = Index([np.nan, dup, 1, 2])
     result = a.union(b, sort=False)
     expected = Index([np.nan, dup, 1.0, 2.0, 2.0])
+    tm.assert_index_equal(result, expected)
+
+
+def test_union_rangeindex_sort_true():
+    # GH 53490
+    idx1 = RangeIndex(1, 100, 6)
+    idx2 = RangeIndex(1, 50, 3)
+    result = idx1.union(idx2, sort=True)
+    expected = Index(
+        [
+            1,
+            4,
+            7,
+            10,
+            13,
+            16,
+            19,
+            22,
+            25,
+            28,
+            31,
+            34,
+            37,
+            40,
+            43,
+            46,
+            49,
+            55,
+            61,
+            67,
+            73,
+            79,
+            85,
+            91,
+            97,
+        ]
+    )
     tm.assert_index_equal(result, expected)
 
 

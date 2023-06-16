@@ -22,7 +22,7 @@ from numpy cimport (
 
 cnp.import_array()
 
-from cpython.datetime cimport (  # alias bc `tzinfo` is a kwarg below
+from cpython.datetime cimport (  # alias tzinfo_type bc `tzinfo` is a kwarg below
     PyDate_Check,
     PyDateTime_Check,
     PyDelta_Check,
@@ -88,11 +88,14 @@ from pandas._libs.tslibs.np_datetime cimport (
     get_datetime64_unit,
     get_datetime64_value,
     get_unit_from_dtype,
+    import_pandas_datetime,
     npy_datetimestruct,
     npy_datetimestruct_to_datetime,
     pandas_datetime_to_datetimestruct,
     pydatetime_to_dtstruct,
 )
+
+import_pandas_datetime()
 
 from pandas._libs.tslibs.np_datetime import (
     OutOfBoundsDatetime,
@@ -461,7 +464,7 @@ cdef class _Timestamp(ABCTimestamp):
             raise integer_op_not_supported(self)
 
         elif is_array(other):
-            if other.dtype.kind in ["i", "u"]:
+            if other.dtype.kind in "iu":
                 raise integer_op_not_supported(self)
             if other.dtype.kind == "m":
                 if self.tz is None:
@@ -493,7 +496,7 @@ cdef class _Timestamp(ABCTimestamp):
             return self + neg_other
 
         elif is_array(other):
-            if other.dtype.kind in ["i", "u"]:
+            if other.dtype.kind in "iu":
                 raise integer_op_not_supported(self)
             if other.dtype.kind == "m":
                 if self.tz is None:
@@ -978,7 +981,7 @@ cdef class _Timestamp(ABCTimestamp):
 
     def isoformat(self, sep: str = "T", timespec: str = "auto") -> str:
         """
-        Return the time formatted according to ISO 8610.
+        Return the time formatted according to ISO 8601.
 
         The full format looks like 'YYYY-MM-DD HH:MM:SS.mmmmmmnnn'.
         By default, the fractional part is omitted if self.microsecond == 0
@@ -1012,7 +1015,7 @@ cdef class _Timestamp(ABCTimestamp):
         base_ts = "microseconds" if timespec == "nanoseconds" else timespec
         base = super(_Timestamp, self).isoformat(sep=sep, timespec=base_ts)
         # We need to replace the fake year 1970 with our real year
-        base = f"{self.year}-" + base.split("-", 1)[1]
+        base = f"{self.year:04d}-" + base.split("-", 1)[1]
 
         if self.nanosecond == 0 and timespec != "nanoseconds":
             return base
@@ -1023,7 +1026,7 @@ cdef class _Timestamp(ABCTimestamp):
             base1, base2 = base, ""
 
         if timespec == "nanoseconds" or (timespec == "auto" and self.nanosecond):
-            if self.microsecond:
+            if self.microsecond or timespec == "nanoseconds":
                 base1 += f"{self.nanosecond:03d}"
             else:
                 base1 += f".{self.nanosecond:09d}"
@@ -1119,6 +1122,19 @@ cdef class _Timestamp(ABCTimestamp):
         Returns
         -------
         Timestamp
+
+        Examples
+        --------
+        >>> ts = pd.Timestamp('2023-01-01 00:00:00.01')
+        >>> ts
+        Timestamp('2023-01-01 00:00:00.010000')
+        >>> ts.unit
+        'ms'
+        >>> ts = ts.as_unit('s')
+        >>> ts
+        Timestamp('2023-01-01 00:00:00')
+        >>> ts.unit
+        's'
         """
         dtype = np.dtype(f"M8[{unit}]")
         reso = get_unit_from_dtype(dtype)
@@ -1290,13 +1306,14 @@ class Timestamp(_Timestamp):
         Unit used for conversion if ts_input is of type int or float. The
         valid values are 'D', 'h', 'm', 's', 'ms', 'us', and 'ns'. For
         example, 's' means seconds and 'ms' means milliseconds.
+
+        For float inputs, the result will be stored in nanoseconds, and
+        the unit attribute will be set as ``'ns'``.
     fold : {0, 1}, default None, keyword-only
         Due to daylight saving time, one wall clock time can occur twice
         when shifting from summer to winter time; fold describes whether the
         datetime-like corresponds  to the first (0) or the second time (1)
         the wall clock hits the ambiguous time.
-
-        .. versionadded:: 1.1.0
 
     Notes
     -----
@@ -1488,6 +1505,31 @@ class Timestamp(_Timestamp):
                 "and `.month`) and construct your string from there."
             ) from err
         return _dt.strftime(format)
+
+    def ctime(self):
+        """
+        Return ctime() style string.
+
+        Examples
+        --------
+        >>> ts = pd.Timestamp('2023-01-01 10:00:00.00')
+        >>> ts
+        Timestamp('2023-01-01 10:00:00')
+        >>> ts.ctime()
+        'Sun Jan  1 10:00:00 2023'
+        """
+        try:
+            _dt = datetime(self.year, self.month, self.day,
+                           self.hour, self.minute, self.second,
+                           self.microsecond, self.tzinfo, fold=self.fold)
+        except ValueError as err:
+            raise NotImplementedError(
+                "ctime not yet supported on Timestamps which "
+                "are outside the range of Python's standard library. "
+                "For now, please call the components you need (such as `.year` "
+                "and `.month`) and construct your string from there."
+            ) from err
+        return _dt.ctime()
 
     # Issue 25016.
     @classmethod
@@ -2344,7 +2386,7 @@ default 'raise'
         Monday == 1 ... Sunday == 7.
         """
         # same as super().isoweekday(), but that breaks because of how
-        #  we have overriden year, see note in create_timestamp_from_ts
+        #  we have overridden year, see note in create_timestamp_from_ts
         return self.weekday() + 1
 
     def weekday(self):
@@ -2354,7 +2396,7 @@ default 'raise'
         Monday == 0 ... Sunday == 6.
         """
         # same as super().weekday(), but that breaks because of how
-        #  we have overriden year, see note in create_timestamp_from_ts
+        #  we have overridden year, see note in create_timestamp_from_ts
         return ccalendar.dayofweek(self.year, self.month, self.day)
 
 
@@ -2368,7 +2410,7 @@ Timestamp.daysinmonth = Timestamp.days_in_month
 
 
 @cython.cdivision(False)
-cdef int64_t normalize_i8_stamp(int64_t local_val, int64_t ppd) nogil:
+cdef int64_t normalize_i8_stamp(int64_t local_val, int64_t ppd) noexcept nogil:
     """
     Round the localized nanosecond timestamp down to the previous midnight.
 

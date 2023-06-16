@@ -25,16 +25,10 @@ from pandas._config.localization import (
     set_locale,
 )
 
-from pandas._typing import (
-    Dtype,
-    Frequency,
-    NpDtype,
-)
 from pandas.compat import pa_version_under7p0
 
 from pandas.core.dtypes.common import (
     is_float_dtype,
-    is_integer_dtype,
     is_sequence,
     is_signed_integer_dtype,
     is_unsigned_integer_dtype,
@@ -103,7 +97,6 @@ from pandas._testing.compat import (
 from pandas._testing.contexts import (
     decompress_file,
     ensure_clean,
-    ensure_safe_environment_variables,
     raises_chained_assignment_error,
     set_timezone,
     use_numexpr,
@@ -118,6 +111,12 @@ from pandas.core.arrays._mixins import NDArrayBackedExtensionArray
 from pandas.core.construction import extract_array
 
 if TYPE_CHECKING:
+    from pandas._typing import (
+        Dtype,
+        Frequency,
+        NpDtype,
+    )
+
     from pandas import (
         PeriodIndex,
         TimedeltaIndex,
@@ -174,6 +173,23 @@ NARROW_NP_DTYPES = [
     np.uint8,
     np.uint16,
     np.uint32,
+]
+
+PYTHON_DATA_TYPES = [
+    str,
+    int,
+    float,
+    complex,
+    list,
+    tuple,
+    range,
+    dict,
+    set,
+    frozenset,
+    bool,
+    bytes,
+    bytearray,
+    memoryview,
 ]
 
 ENDIAN = {"little": "<", "big": ">"}[byteorder]
@@ -252,6 +268,7 @@ if not pa_version_under7p0:
 else:
     FLOAT_PYARROW_DTYPES_STR_REPR = []
     ALL_INT_PYARROW_DTYPES_STR_REPR = []
+    ALL_PYARROW_DTYPES = []
 
 
 EMPTY_STRING_PATTERN = re.compile("^$")
@@ -370,11 +387,11 @@ def makeNumericIndex(k: int = 10, *, name=None, dtype: Dtype | None) -> Index:
     dtype = pandas_dtype(dtype)
     assert isinstance(dtype, np.dtype)
 
-    if is_integer_dtype(dtype):
+    if dtype.kind in "iu":
         values = np.arange(k, dtype=dtype)
         if is_unsigned_integer_dtype(dtype):
             values += 2 ** (dtype.itemsize * 8 - 1)
-    elif is_float_dtype(dtype):
+    elif dtype.kind == "f":
         values = np.random.random_sample(k) - np.random.random_sample(1)
         values.sort()
         values = values * (10 ** np.random.randint(0, 9))
@@ -834,9 +851,7 @@ class SubclassedDataFrame(DataFrame):
 
 
 class SubclassedCategorical(Categorical):
-    @property
-    def _constructor(self):
-        return SubclassedCategorical
+    pass
 
 
 def _make_skipna_wrapper(alternative, skipna_alternative=None):
@@ -1026,8 +1041,8 @@ def shares_memory(left, right) -> bool:
         left = cast("ArrowExtensionArray", left)
         if isinstance(right, ExtensionArray) and right.dtype == "string[pyarrow]":
             right = cast("ArrowExtensionArray", right)
-            left_pa_data = left._data
-            right_pa_data = right._data
+            left_pa_data = left._pa_array
+            right_pa_data = right._pa_array
             left_buf1 = left_pa_data.chunk(0).buffers()[1]
             right_buf1 = right_pa_data.chunk(0).buffers()[1]
             return left_buf1 == right_buf1
@@ -1088,7 +1103,6 @@ __all__ = [
     "EMPTY_STRING_PATTERN",
     "ENDIAN",
     "ensure_clean",
-    "ensure_safe_environment_variables",
     "equalContents",
     "external_error_raised",
     "FLOAT_EA_DTYPES",
