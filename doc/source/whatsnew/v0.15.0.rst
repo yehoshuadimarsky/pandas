@@ -185,7 +185,29 @@ Constructing a ``TimedeltaIndex`` with a regular range
 .. ipython:: python
 
    pd.timedelta_range('1 days', periods=5, freq='D')
-   pd.timedelta_range(start='1 days', end='2 days', freq='30T')
+
+.. code-block:: python
+
+   In [20]: pd.timedelta_range(start='1 days', end='2 days', freq='30T')
+   Out[20]:
+   TimedeltaIndex(['1 days 00:00:00', '1 days 00:30:00', '1 days 01:00:00',
+                   '1 days 01:30:00', '1 days 02:00:00', '1 days 02:30:00',
+                   '1 days 03:00:00', '1 days 03:30:00', '1 days 04:00:00',
+                   '1 days 04:30:00', '1 days 05:00:00', '1 days 05:30:00',
+                   '1 days 06:00:00', '1 days 06:30:00', '1 days 07:00:00',
+                   '1 days 07:30:00', '1 days 08:00:00', '1 days 08:30:00',
+                   '1 days 09:00:00', '1 days 09:30:00', '1 days 10:00:00',
+                   '1 days 10:30:00', '1 days 11:00:00', '1 days 11:30:00',
+                   '1 days 12:00:00', '1 days 12:30:00', '1 days 13:00:00',
+                   '1 days 13:30:00', '1 days 14:00:00', '1 days 14:30:00',
+                   '1 days 15:00:00', '1 days 15:30:00', '1 days 16:00:00',
+                   '1 days 16:30:00', '1 days 17:00:00', '1 days 17:30:00',
+                   '1 days 18:00:00', '1 days 18:30:00', '1 days 19:00:00',
+                   '1 days 19:30:00', '1 days 20:00:00', '1 days 20:30:00',
+                   '1 days 21:00:00', '1 days 21:30:00', '1 days 22:00:00',
+                   '1 days 22:30:00', '1 days 23:00:00', '1 days 23:30:00',
+                   '2 days 00:00:00'],
+                  dtype='timedelta64[ns]', freq='30T')
 
 You can now use a ``TimedeltaIndex`` as the index of a pandas object
 
@@ -310,16 +332,37 @@ Timezone handling improvements
 - ``tz_localize(None)`` for tz-aware ``Timestamp`` and ``DatetimeIndex`` now removes timezone holding local time,
   previously this resulted in ``Exception`` or ``TypeError`` (:issue:`7812`)
 
-  .. ipython:: python
+  .. code-block:: ipython
 
-     ts = pd.Timestamp('2014-08-01 09:00', tz='US/Eastern')
-     ts
-     ts.tz_localize(None)
+     In [58]: ts = pd.Timestamp('2014-08-01 09:00', tz='US/Eastern')
 
-     didx = pd.date_range(start='2014-08-01 09:00', freq='H',
-                          periods=10, tz='US/Eastern')
-     didx
-     didx.tz_localize(None)
+     In[59]: ts
+     Out[59]: Timestamp('2014-08-01 09:00:00-0400', tz='US/Eastern')
+
+     In [60]: ts.tz_localize(None)
+     Out[60]: Timestamp('2014-08-01 09:00:00')
+
+     In [61]: didx = pd.date_range(start='2014-08-01 09:00', freq='H',
+        ....:                      periods=10, tz='US/Eastern')
+        ....:
+
+     In [62]: didx
+     Out[62]:
+     DatetimeIndex(['2014-08-01 09:00:00-04:00', '2014-08-01 10:00:00-04:00',
+                    '2014-08-01 11:00:00-04:00', '2014-08-01 12:00:00-04:00',
+                    '2014-08-01 13:00:00-04:00', '2014-08-01 14:00:00-04:00',
+                    '2014-08-01 15:00:00-04:00', '2014-08-01 16:00:00-04:00',
+                    '2014-08-01 17:00:00-04:00', '2014-08-01 18:00:00-04:00'],
+                   dtype='datetime64[ns, US/Eastern]', freq='H')
+
+     In [63]: didx.tz_localize(None)
+     Out[63]:
+     DatetimeIndex(['2014-08-01 09:00:00', '2014-08-01 10:00:00',
+                    '2014-08-01 11:00:00', '2014-08-01 12:00:00',
+                    '2014-08-01 13:00:00', '2014-08-01 14:00:00',
+                    '2014-08-01 15:00:00', '2014-08-01 16:00:00',
+                    '2014-08-01 17:00:00', '2014-08-01 18:00:00'],
+                   dtype='datetime64[ns]', freq=None)
 
 - ``tz_localize`` now accepts the ``ambiguous`` keyword which allows for passing an array of bools
   indicating whether the date belongs in DST or not, 'NaT' for setting transition times to NaT,
@@ -402,7 +445,7 @@ Rolling/expanding moments improvements
      3    5
      dtype: float64
 
-- :func:`rolling_window` now normalizes the weights properly in rolling mean mode (`mean=True`) so that
+- :func:`rolling_window` now normalizes the weights properly in rolling mean mode (``mean=True``) so that
   the calculated weighted means (e.g. 'triang', 'gaussian') are distributed about the same means as those
   calculated without weighting (i.e. 'boxcar'). See :ref:`the note on normalization <window.weighted>` for further details. (:issue:`7618`)
 
@@ -447,7 +490,7 @@ Rolling/expanding moments improvements
   ``ddof`` argument (with a default value of ``1``) was previously undocumented. (:issue:`8064`)
 
 - :func:`ewma`, :func:`ewmstd`, :func:`ewmvol`, :func:`ewmvar`, :func:`ewmcov`, and :func:`ewmcorr`
-  now interpret ``min_periods`` in the same manner that the :func:`rolling_*()` and :func:`expanding_*()` functions do:
+  now interpret ``min_periods`` in the same manner that the :func:`rolling_*` and :func:`expanding_*` functions do:
   a given result entry will be ``NaN`` if the (expanding, in this case) window does not contain
   at least ``min_periods`` values. The previous behavior was to set to ``NaN`` the ``min_periods`` entries
   starting with the first non- ``NaN`` value. (:issue:`7977`)
@@ -524,7 +567,7 @@ Rolling/expanding moments improvements
 
   .. warning::
 
-     By default (``ignore_na=False``) the :func:`ewm*()` functions' weights calculation
+     By default (``ignore_na=False``) the :func:`ewm*` functions' weights calculation
      in the presence of missing values is different than in pre-0.15.0 versions.
      To reproduce the pre-0.15.0 calculation of weights in the presence of missing values
      one must specify explicitly ``ignore_na=True``.
@@ -533,7 +576,7 @@ Rolling/expanding moments improvements
   returning results with columns sorted by name and producing an error for non-unique columns;
   now handles non-unique columns and returns columns in original order
   (except for the case of two DataFrames with ``pairwise=False``, where behavior is unchanged) (:issue:`7542`)
-- Bug in :func:`rolling_count` and :func:`expanding_*()` functions unnecessarily producing error message for zero-length data (:issue:`8056`)
+- Bug in :func:`rolling_count` and :func:`expanding_*` functions unnecessarily producing error message for zero-length data (:issue:`8056`)
 - Bug in :func:`rolling_apply` and :func:`expanding_apply` interpreting ``min_periods=0`` as ``min_periods=1`` (:issue:`8080`)
 - Bug in :func:`expanding_std` and :func:`expanding_var` for a single value producing a confusing error message (:issue:`7900`)
 - Bug in :func:`rolling_std` and :func:`rolling_var` for a single value producing ``0`` rather than ``NaN`` (:issue:`7900`)
@@ -832,7 +875,7 @@ Other notable API changes:
   The behaviour of assigning a column to an existing dataframe as ``df['a'] = i``
   remains unchanged (this already returned an  ``object`` column with a timezone).
 
-- When passing multiple levels to :meth:`~pandas.DataFrame.stack()`, it will now raise a ``ValueError`` when the
+- When passing multiple levels to :meth:`~pandas.DataFrame.stack`, it will now raise a ``ValueError`` when the
   levels aren't all level names or all level numbers (:issue:`7660`). See
   :ref:`Reshaping by stacking and unstacking <reshaping.stack_multiple>`.
 
@@ -1028,16 +1071,35 @@ Other:
 
   If ``Period`` freq is ``D``, ``H``, ``T``, ``S``, ``L``, ``U``, ``N``, ``Timedelta``-like can be added if the result can have same freq. Otherwise, only the same ``offsets`` can be added.
 
-  .. ipython:: python
+  .. code-block:: ipython
 
-     idx = pd.period_range('2014-07-01 09:00', periods=5, freq='H')
-     idx
-     idx + pd.offsets.Hour(2)
-     idx + pd.Timedelta('120m')
+     In [104]: idx = pd.period_range('2014-07-01 09:00', periods=5, freq='H')
 
-     idx = pd.period_range('2014-07', periods=5, freq='M')
-     idx
-     idx + pd.offsets.MonthEnd(3)
+     In [105]: idx
+     Out[105]:
+     PeriodIndex(['2014-07-01 09:00', '2014-07-01 10:00', '2014-07-01 11:00',
+                  '2014-07-01 12:00', '2014-07-01 13:00'],
+                 dtype='period[H]')
+
+     In [106]: idx + pd.offsets.Hour(2)
+     Out[106]:
+     PeriodIndex(['2014-07-01 11:00', '2014-07-01 12:00', '2014-07-01 13:00',
+                  '2014-07-01 14:00', '2014-07-01 15:00'],
+                 dtype='period[H]')
+
+     In [107]: idx + pd.Timedelta('120m')
+     Out[107]:
+     PeriodIndex(['2014-07-01 11:00', '2014-07-01 12:00', '2014-07-01 13:00',
+                  '2014-07-01 14:00', '2014-07-01 15:00'],
+                 dtype='period[H]')
+
+     In [108]: idx = pd.period_range('2014-07', periods=5, freq='M')
+
+     In [109]: idx
+     Out[109]: PeriodIndex(['2014-07', '2014-08', '2014-09', '2014-10', '2014-11'], dtype='period[M]')
+
+     In [110]: idx + pd.offsets.MonthEnd(3)
+     Out[110]: PeriodIndex(['2014-10', '2014-11', '2014-12', '2015-01', '2015-02'], dtype='period[M]')
 
 - Added experimental compatibility with ``openpyxl`` for versions >= 2.0. The ``DataFrame.to_excel``
   method ``engine`` keyword now recognizes ``openpyxl1`` and ``openpyxl2``
@@ -1048,7 +1110,7 @@ Other:
 
 - ``DataFrame.fillna`` can now accept a ``DataFrame`` as a fill value (:issue:`8377`)
 
-- Passing multiple levels to :meth:`~pandas.DataFrame.stack()` will now work when multiple level
+- Passing multiple levels to :meth:`~pandas.DataFrame.stack` will now work when multiple level
   numbers are passed (:issue:`7660`). See
   :ref:`Reshaping by stacking and unstacking <reshaping.stack_multiple>`.
 

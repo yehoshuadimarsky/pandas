@@ -1,6 +1,7 @@
 """
 Assertion helpers for arithmetic tests.
 """
+
 import numpy as np
 import pytest
 
@@ -13,19 +14,22 @@ from pandas import (
 import pandas._testing as tm
 from pandas.core.arrays import (
     BooleanArray,
-    PandasArray,
+    NumpyExtensionArray,
 )
 
 
 def assert_cannot_add(left, right, msg="cannot add"):
     """
-    Helper to assert that left and right cannot be added.
+    Helper function to assert that two objects cannot be added.
 
     Parameters
     ----------
     left : object
+        The first operand.
     right : object
+        The second operand.
     msg : str, default "cannot add"
+        The error message expected in the TypeError.
     """
     with pytest.raises(TypeError, match=msg):
         left + right
@@ -35,13 +39,17 @@ def assert_cannot_add(left, right, msg="cannot add"):
 
 def assert_invalid_addsub_type(left, right, msg=None):
     """
-    Helper to assert that left and right can be neither added nor subtracted.
+    Helper function to assert that two objects can
+    neither be added nor subtracted.
 
     Parameters
     ----------
     left : object
+        The first operand.
     right : object
+        The second operand.
     msg : str or None, default None
+        The error message expected in the TypeError.
     """
     with pytest.raises(TypeError, match=msg):
         left + right
@@ -95,8 +103,8 @@ def assert_invalid_comparison(left, right, box):
 
     def xbox2(x):
         # Eventually we'd like this to be tighter, but for now we'll
-        #  just exclude PandasArray[bool]
-        if isinstance(x, PandasArray):
+        #  just exclude NumpyExtensionArray[bool]
+        if isinstance(x, NumpyExtensionArray):
             return x._ndarray
         if isinstance(x, BooleanArray):
             # NB: we are assuming no pd.NAs for now

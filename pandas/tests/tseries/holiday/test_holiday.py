@@ -1,9 +1,14 @@
-from datetime import datetime
+from datetime import (
+    datetime,
+    timezone,
+)
 
 import pytest
-from pytz import utc
 
-from pandas import DatetimeIndex
+from pandas import (
+    DatetimeIndex,
+    Series,
+)
 import pandas._testing as tm
 
 from pandas.tseries.holiday import (
@@ -17,6 +22,7 @@ from pandas.tseries.holiday import (
     HolidayCalendarFactory,
     Timestamp,
     USColumbusDay,
+    USFederalHolidayCalendar,
     USLaborDay,
     USMartinLutherKingJr,
     USMemorialDay,
@@ -124,9 +130,9 @@ def test_holiday_dates(holiday, start_date, end_date, expected):
     # Verify that timezone info is preserved.
     assert list(
         holiday.dates(
-            utc.localize(Timestamp(start_date)), utc.localize(Timestamp(end_date))
+            Timestamp(start_date, tz=timezone.utc), Timestamp(end_date, tz=timezone.utc)
         )
-    ) == [utc.localize(dt) for dt in expected]
+    ) == [dt.replace(tzinfo=timezone.utc) for dt in expected]
 
 
 @pytest.mark.parametrize(
@@ -190,8 +196,10 @@ def test_holidays_within_dates(holiday, start, expected):
 
     # Verify that timezone info is preserved.
     assert list(
-        holiday.dates(utc.localize(Timestamp(start)), utc.localize(Timestamp(start)))
-    ) == [utc.localize(dt) for dt in expected]
+        holiday.dates(
+            Timestamp(start, tz=timezone.utc), Timestamp(start, tz=timezone.utc)
+        )
+    ) == [dt.replace(tzinfo=timezone.utc) for dt in expected]
 
 
 @pytest.mark.parametrize(
@@ -267,6 +275,25 @@ def test_both_offset_observance_raises():
         )
 
 
+def test_list_of_list_of_offsets_raises():
+    # see gh-29049
+    # Test that the offsets of offsets are forbidden
+    holiday1 = Holiday(
+        "Holiday1",
+        month=USThanksgivingDay.month,
+        day=USThanksgivingDay.day,
+        offset=[USThanksgivingDay.offset, DateOffset(1)],
+    )
+    msg = "Only BaseOffsets and flat lists of them are supported for offset."
+    with pytest.raises(ValueError, match=msg):
+        Holiday(
+            "Holiday2",
+            month=holiday1.month,
+            day=holiday1.day,
+            offset=[holiday1.offset, DateOffset(3)],
+        )
+
+
 def test_half_open_interval_with_observance():
     # Prompted by GH 49075
     # Check for holidays that have a half-open date interval where
@@ -311,3 +338,18 @@ def test_half_open_interval_with_observance():
     tm.assert_index_equal(date_interval_low, expected_results)
     tm.assert_index_equal(date_window_edge, expected_results)
     tm.assert_index_equal(date_interval_high, expected_results)
+
+
+def test_holidays_with_timezone_specified_but_no_occurences():
+    # GH 54580
+    # _apply_rule() in holiday.py was silently dropping timezones if you passed it
+    # an empty list of holiday dates that had timezone information
+    start_date = Timestamp("2018-01-01", tz="America/Chicago")
+    end_date = Timestamp("2018-01-11", tz="America/Chicago")
+    test_case = USFederalHolidayCalendar().holidays(
+        start_date, end_date, return_name=True
+    )
+    expected_results = Series("New Year's Day", index=[start_date])
+    expected_results.index = expected_results.index.as_unit("ns")
+
+    tm.assert_equal(test_case, expected_results)

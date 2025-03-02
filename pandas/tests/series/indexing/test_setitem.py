@@ -1,11 +1,15 @@
+import contextlib
 from datetime import (
     date,
     datetime,
 )
+from decimal import Decimal
+import os
 
 import numpy as np
 import pytest
 
+from pandas.compat.numpy import np_version_gte1p24
 from pandas.errors import IndexingError
 
 from pandas.core.dtypes.common import is_list_like
@@ -22,6 +26,7 @@ from pandas import (
     NaT,
     Period,
     Series,
+    StringDtype,
     Timedelta,
     Timestamp,
     array,
@@ -79,7 +84,7 @@ class TestSetitemDT64Values:
 
     @pytest.mark.parametrize("tz", ["US/Eastern", "UTC", "Asia/Tokyo"])
     def test_setitem_with_tz(self, tz, indexer_sli):
-        orig = Series(date_range("2016-01-01", freq="H", periods=3, tz=tz))
+        orig = Series(date_range("2016-01-01", freq="h", periods=3, tz=tz))
         assert orig.dtype == f"datetime64[ns, {tz}]"
 
         exp = Series(
@@ -87,7 +92,8 @@ class TestSetitemDT64Values:
                 Timestamp("2016-01-01 00:00", tz=tz),
                 Timestamp("2011-01-01 00:00", tz=tz),
                 Timestamp("2016-01-01 02:00", tz=tz),
-            ]
+            ],
+            dtype=orig.dtype,
         )
 
         # scalar
@@ -99,6 +105,7 @@ class TestSetitemDT64Values:
         vals = Series(
             [Timestamp("2011-01-01", tz=tz), Timestamp("2012-01-01", tz=tz)],
             index=[1, 2],
+            dtype=orig.dtype,
         )
         assert vals.dtype == f"datetime64[ns, {tz}]"
 
@@ -107,7 +114,8 @@ class TestSetitemDT64Values:
                 Timestamp("2016-01-01 00:00", tz=tz),
                 Timestamp("2011-01-01 00:00", tz=tz),
                 Timestamp("2012-01-01 00:00", tz=tz),
-            ]
+            ],
+            dtype=orig.dtype,
         )
 
         ser = orig.copy()
@@ -117,7 +125,7 @@ class TestSetitemDT64Values:
     def test_setitem_with_tz_dst(self, indexer_sli):
         # GH#14146 trouble setting values near DST boundary
         tz = "US/Eastern"
-        orig = Series(date_range("2016-11-06", freq="H", periods=3, tz=tz))
+        orig = Series(date_range("2016-11-06", freq="h", periods=3, tz=tz))
         assert orig.dtype == f"datetime64[ns, {tz}]"
 
         exp = Series(
@@ -125,7 +133,8 @@ class TestSetitemDT64Values:
                 Timestamp("2016-11-06 00:00-04:00", tz=tz),
                 Timestamp("2011-01-01 00:00-05:00", tz=tz),
                 Timestamp("2016-11-06 01:00-05:00", tz=tz),
-            ]
+            ],
+            dtype=orig.dtype,
         )
 
         # scalar
@@ -137,6 +146,7 @@ class TestSetitemDT64Values:
         vals = Series(
             [Timestamp("2011-01-01", tz=tz), Timestamp("2012-01-01", tz=tz)],
             index=[1, 2],
+            dtype=orig.dtype,
         )
         assert vals.dtype == f"datetime64[ns, {tz}]"
 
@@ -145,7 +155,8 @@ class TestSetitemDT64Values:
                 Timestamp("2016-11-06 00:00", tz=tz),
                 Timestamp("2011-01-01 00:00", tz=tz),
                 Timestamp("2012-01-01 00:00", tz=tz),
-            ]
+            ],
+            dtype=orig.dtype,
         )
 
         ser = orig.copy()
@@ -173,13 +184,12 @@ class TestSetitemDT64Values:
 
 class TestSetitemScalarIndexer:
     def test_setitem_negative_out_of_bounds(self):
-        ser = Series(tm.rands_array(5, 10), index=tm.rands_array(10, 10))
-
-        msg = "index -11 is out of bounds for axis 0 with size 10"
-        warn_msg = "Series.__setitem__ treating keys as positions is deprecated"
-        with pytest.raises(IndexError, match=msg):
-            with tm.assert_produces_warning(FutureWarning, match=warn_msg):
-                ser[-11] = "foo"
+        # As of 3.0, int keys are treated as labels, so this becomes
+        #  setitem-with-expansion
+        ser = Series(["a"] * 10, index=["a"] * 10)
+        ser[-11] = "foo"
+        exp = Series(["a"] * 10 + ["foo"], index=["a"] * 10 + [-11])
+        tm.assert_series_equal(ser, exp)
 
     @pytest.mark.parametrize("indexer", [tm.loc, tm.at])
     @pytest.mark.parametrize("ser_index", [0, 1])
@@ -221,7 +231,10 @@ class TestSetitemSlices:
         assert (ser == 0).all()
 
     def test_setitem_slice_integers(self):
-        ser = Series(np.random.randn(8), index=[2, 4, 6, 8, 10, 12, 14, 16])
+        ser = Series(
+            np.random.default_rng(2).standard_normal(8),
+            index=[2, 4, 6, 8, 10, 12, 14, 16],
+        )
 
         ser[:4] = 0
         assert (ser[:4] == 0).all()
@@ -229,7 +242,9 @@ class TestSetitemSlices:
 
     def test_setitem_slicestep(self):
         # caught this bug when writing tests
-        series = Series(tm.makeIntIndex(20).astype(float), index=tm.makeIntIndex(20))
+        series = Series(
+            np.arange(20, dtype=np.float64), index=np.arange(20, dtype=np.int64)
+        )
 
         series[::2] = 0
         assert (series[::2] == 0).all()
@@ -255,22 +270,21 @@ class TestSetitemBooleanMask:
 
     def test_setitem_mask_align_and_promote(self):
         # GH#8387: test that changing types does not break alignment
-        ts = Series(np.random.randn(100), index=np.arange(100, 0, -1)).round(5)
+        ts = Series(
+            np.random.default_rng(2).standard_normal(100), index=np.arange(100, 0, -1)
+        ).round(5)
         mask = ts > 0
         left = ts.copy()
         right = ts[mask].copy().map(str)
-        left[mask] = right
-        expected = ts.map(lambda t: str(t) if t > 0 else t)
-        tm.assert_series_equal(left, expected)
+        with pytest.raises(TypeError, match="Invalid value"):
+            left[mask] = right
 
     def test_setitem_mask_promote_strs(self):
         ser = Series([0, 1, 2, 0])
         mask = ser > 0
         ser2 = ser[mask].map(str)
-        ser[mask] = ser2
-
-        expected = Series([0, "1", "2", 0])
-        tm.assert_series_equal(ser, expected)
+        with pytest.raises(TypeError, match="Invalid value"):
+            ser[mask] = ser2
 
     def test_setitem_mask_promote(self):
         ser = Series([0, "foo", "bar", 0])
@@ -359,9 +373,8 @@ class TestSetitemBooleanMask:
     def test_setitem_nan_with_bool(self):
         # GH 13034
         result = Series([True, False, True])
-        result[0] = np.nan
-        expected = Series([np.nan, False, True], dtype=object)
-        tm.assert_series_equal(result, expected)
+        with pytest.raises(TypeError, match="Invalid value"):
+            result[0] = np.nan
 
     def test_setitem_mask_smallint_upcast(self):
         orig = Series([1, 2, 3], dtype="int8")
@@ -370,16 +383,14 @@ class TestSetitemBooleanMask:
         mask = np.array([True, False, True])
 
         ser = orig.copy()
-        ser[mask] = Series(alt)
+        with pytest.raises(TypeError, match="Invalid value"):
+            ser[mask] = Series(alt)
+
+        with pytest.raises(TypeError, match="Invalid value"):
+            ser.mask(mask, alt, inplace=True)
+
+        res = ser.where(~mask, Series(alt))
         expected = Series([999, 2, 1001])
-        tm.assert_series_equal(ser, expected)
-
-        ser2 = orig.copy()
-        ser2.mask(mask, alt, inplace=True)
-        tm.assert_series_equal(ser2, expected)
-
-        ser3 = orig.copy()
-        res = ser3.where(~mask, Series(alt))
         tm.assert_series_equal(res, expected)
 
     def test_setitem_mask_smallint_no_upcast(self):
@@ -399,15 +410,14 @@ class TestSetitemBooleanMask:
         ser2.mask(mask, alt, inplace=True)
         tm.assert_series_equal(ser2, expected)
 
-        # FIXME: don't leave commented-out
-        # FIXME: ser.where(~mask, alt) unnecessarily upcasts to int64
-        # ser3 = orig.copy()
-        # res = ser3.where(~mask, alt)
-        # tm.assert_series_equal(res, expected)
+        # TODO: ser.where(~mask, alt) unnecessarily upcasts to int64
+        ser3 = orig.copy()
+        res = ser3.where(~mask, alt)
+        tm.assert_series_equal(res, expected, check_dtype=False)
 
 
 class TestSetitemViewCopySemantics:
-    def test_setitem_invalidates_datetime_index_freq(self, using_copy_on_write):
+    def test_setitem_invalidates_datetime_index_freq(self):
         # GH#24096 altering a datetime64tz Series inplace invalidates the
         #  `freq` attribute on the underlying DatetimeIndex
 
@@ -415,10 +425,7 @@ class TestSetitemViewCopySemantics:
         ts = dti[1]
         ser = Series(dti)
         assert ser._values is not dti
-        if using_copy_on_write:
-            assert ser._values._ndarray.base is dti._data._ndarray.base
-        else:
-            assert ser._values._ndarray.base is not dti._data._ndarray.base
+        assert ser._values._ndarray.base is dti._data._ndarray.base
         assert dti.freq == "D"
         ser.iloc[1] = NaT
         assert ser._values.freq is None
@@ -429,20 +436,16 @@ class TestSetitemViewCopySemantics:
         assert dti[1] == ts
         assert dti.freq == "D"
 
-    def test_dt64tz_setitem_does_not_mutate_dti(self, using_copy_on_write):
+    def test_dt64tz_setitem_does_not_mutate_dti(self):
         # GH#21907, GH#24096
         dti = date_range("2016-01-01", periods=10, tz="US/Pacific")
         ts = dti[0]
         ser = Series(dti)
         assert ser._values is not dti
-        if using_copy_on_write:
-            assert ser._values._ndarray.base is dti._data._ndarray.base
-            assert ser._mgr.arrays[0]._ndarray.base is dti._data._ndarray.base
-        else:
-            assert ser._values._ndarray.base is not dti._data._ndarray.base
-            assert ser._mgr.arrays[0]._ndarray.base is not dti._data._ndarray.base
+        assert ser._values._ndarray.base is dti._data._ndarray.base
+        assert ser._mgr.blocks[0].values._ndarray.base is dti._data._ndarray.base
 
-        assert ser._mgr.arrays[0] is not dti
+        assert ser._mgr.blocks[0].values is not dti
 
         ser[::3] = NaT
         assert ser[0] is NaT
@@ -471,20 +474,23 @@ class TestSetitemCallable:
 
 
 class TestSetitemWithExpansion:
-    def test_setitem_empty_series(self):
+    def test_setitem_empty_series(self, using_infer_string):
         # GH#10193
         key = Timestamp("2012-01-01")
         series = Series(dtype=object)
         series[key] = 47
-        expected = Series(47, [key])
+        expected = Series(
+            47, index=[key] if using_infer_string else Index([key], dtype=object)
+        )
         tm.assert_series_equal(series, expected)
 
     def test_setitem_empty_series_datetimeindex_preserves_freq(self):
         # GH#33573 our index should retain its freq
-        series = Series([], DatetimeIndex([], freq="D"), dtype=object)
+        dti = DatetimeIndex([], freq="D", dtype="M8[ns]")
+        series = Series([], index=dti, dtype=object)
         key = Timestamp("2012-01-01")
         series[key] = 47
-        expected = Series(47, DatetimeIndex([key], freq="D"))
+        expected = Series(47, DatetimeIndex([key], freq="D").as_unit("ns"))
         tm.assert_series_equal(series, expected)
         assert series.index.freq == expected.index.freq
 
@@ -508,8 +514,12 @@ class TestSetitemWithExpansion:
             Timedelta("9 days").to_pytimedelta(),
         ],
     )
-    def test_append_timedelta_does_not_cast(self, td):
+    def test_append_timedelta_does_not_cast(self, td, using_infer_string, request):
         # GH#22717 inserting a Timedelta should _not_ cast to int64
+        if using_infer_string and not isinstance(td, Timedelta):
+            # TODO: GH#56010
+            request.applymarker(pytest.mark.xfail(reason="inferred as string"))
+
         expected = Series(["x", td], index=[0, "td"], dtype=object)
 
         ser = Series(["x"])
@@ -548,33 +558,52 @@ class TestSetitemWithExpansion:
         expected = Series([1, 2, 10], dtype=any_numeric_ea_dtype)
         tm.assert_series_equal(ser, expected)
 
-    @pytest.mark.parametrize("indexer", [1, 2])
     @pytest.mark.parametrize(
-        "na, target_na, dtype, target_dtype",
+        "na, target_na, dtype, target_dtype, indexer, raises",
         [
-            (NA, NA, "Int64", "Int64"),
-            (NA, np.nan, "int64", "float64"),
-            (NaT, NaT, "int64", "object"),
-            (np.nan, NA, "Int64", "Int64"),
-            (np.nan, NA, "Float64", "Float64"),
-            (np.nan, np.nan, "int64", "float64"),
+            (NA, NA, "Int64", "Int64", 1, False),
+            (NA, NA, "Int64", "Int64", 2, False),
+            (NA, np.nan, "int64", "float64", 1, False),
+            (NA, np.nan, "int64", "float64", 2, False),
+            (NaT, NaT, "int64", "object", 1, True),
+            (NaT, NaT, "int64", "object", 2, False),
+            (np.nan, NA, "Int64", "Int64", 1, False),
+            (np.nan, NA, "Int64", "Int64", 2, False),
+            (np.nan, NA, "Float64", "Float64", 1, False),
+            (np.nan, NA, "Float64", "Float64", 2, False),
+            (np.nan, np.nan, "int64", "float64", 1, False),
+            (np.nan, np.nan, "int64", "float64", 2, False),
         ],
     )
-    def test_setitem_enlarge_with_na(self, na, target_na, dtype, target_dtype, indexer):
+    def test_setitem_enlarge_with_na(
+        self, na, target_na, dtype, target_dtype, indexer, raises
+    ):
         # GH#32346
         ser = Series([1, 2], dtype=dtype)
-        ser[indexer] = na
-        expected_values = [1, target_na] if indexer == 1 else [1, 2, target_na]
-        expected = Series(expected_values, dtype=target_dtype)
-        tm.assert_series_equal(ser, expected)
+        if raises:
+            with pytest.raises(TypeError, match="Invalid value"):
+                ser[indexer] = na
+        else:
+            ser[indexer] = na
+            expected_values = [1, target_na] if indexer == 1 else [1, 2, target_na]
+            expected = Series(expected_values, dtype=target_dtype)
+            tm.assert_series_equal(ser, expected)
 
-    def test_setitem_enlargement_object_none(self, nulls_fixture):
+    def test_setitem_enlargement_object_none(self, nulls_fixture, using_infer_string):
         # GH#48665
         ser = Series(["a", "b"])
         ser[3] = nulls_fixture
-        expected = Series(["a", "b", nulls_fixture], index=[0, 1, 3])
+        dtype = (
+            "str"
+            if using_infer_string and not isinstance(nulls_fixture, Decimal)
+            else object
+        )
+        expected = Series(["a", "b", nulls_fixture], index=[0, 1, 3], dtype=dtype)
         tm.assert_series_equal(ser, expected)
-        assert ser[3] is nulls_fixture
+        if using_infer_string:
+            ser[3] is np.nan
+        else:
+            assert ser[3] is nulls_fixture
 
 
 def test_setitem_scalar_into_readonly_backing_data():
@@ -652,13 +681,8 @@ class TestSetitemCasting:
         if not unique:
             ser.index = [1, 1]
 
-        indexer_sli(ser)[1] = val
-        assert type(ser.iloc[1]) == type(val)
-
-        expected = Series([True, val], dtype=object, index=ser.index)
-        if not unique and indexer_sli is not tm.iloc:
-            expected = Series([val, val], dtype=object, index=[1, 1])
-        tm.assert_series_equal(ser, expected)
+        with pytest.raises(TypeError, match="Invalid value"):
+            indexer_sli(ser)[1] = val
 
     def test_setitem_boolean_array_into_npbool(self):
         # GH#45462
@@ -669,9 +693,8 @@ class TestSetitemCasting:
         ser[:2] = arr[:2]  # no NAs -> can set inplace
         assert ser._values is values
 
-        ser[1:] = arr[1:]  # has an NA -> cast to boolean dtype
-        expected = Series(arr)
-        tm.assert_series_equal(ser, expected)
+        with pytest.raises(TypeError, match="Invalid value"):
+            ser[1:] = arr[1:]  # has an NA -> cast to boolean dtype
 
 
 class SetitemCastingEquivalents:
@@ -715,52 +738,72 @@ class SetitemCastingEquivalents:
             # otherwise original array should be unchanged
             tm.assert_equal(arr, orig._values)
 
-    def test_int_key(self, obj, key, expected, val, indexer_sli, is_inplace):
+    def test_int_key(self, obj, key, expected, raises, val, indexer_sli, is_inplace):
         if not isinstance(key, int):
-            return
+            pytest.skip("Not relevant for int key")
+        if raises:
+            ctx = pytest.raises(TypeError, match="Invalid value")
+        else:
+            ctx = contextlib.nullcontext()
 
-        self.check_indexer(obj, key, expected, val, indexer_sli, is_inplace)
+        with ctx:
+            self.check_indexer(obj, key, expected, val, indexer_sli, is_inplace)
 
         if indexer_sli is tm.loc:
-            self.check_indexer(obj, key, expected, val, tm.at, is_inplace)
+            with ctx:
+                self.check_indexer(obj, key, expected, val, tm.at, is_inplace)
         elif indexer_sli is tm.iloc:
-            self.check_indexer(obj, key, expected, val, tm.iat, is_inplace)
+            with ctx:
+                self.check_indexer(obj, key, expected, val, tm.iat, is_inplace)
 
         rng = range(key, key + 1)
-        self.check_indexer(obj, rng, expected, val, indexer_sli, is_inplace)
+        with ctx:
+            self.check_indexer(obj, rng, expected, val, indexer_sli, is_inplace)
 
         if indexer_sli is not tm.loc:
             # Note: no .loc because that handles slice edges differently
             slc = slice(key, key + 1)
-            self.check_indexer(obj, slc, expected, val, indexer_sli, is_inplace)
+            with ctx:
+                self.check_indexer(obj, slc, expected, val, indexer_sli, is_inplace)
 
         ilkey = [key]
-        self.check_indexer(obj, ilkey, expected, val, indexer_sli, is_inplace)
+        with ctx:
+            self.check_indexer(obj, ilkey, expected, val, indexer_sli, is_inplace)
 
         indkey = np.array(ilkey)
-        self.check_indexer(obj, indkey, expected, val, indexer_sli, is_inplace)
+        with ctx:
+            self.check_indexer(obj, indkey, expected, val, indexer_sli, is_inplace)
 
         genkey = (x for x in [key])
-        self.check_indexer(obj, genkey, expected, val, indexer_sli, is_inplace)
+        with ctx:
+            self.check_indexer(obj, genkey, expected, val, indexer_sli, is_inplace)
 
-    def test_slice_key(self, obj, key, expected, val, indexer_sli, is_inplace):
+    def test_slice_key(self, obj, key, expected, raises, val, indexer_sli, is_inplace):
         if not isinstance(key, slice):
-            return
+            pytest.skip("Not relevant for slice key")
+        if raises:
+            ctx = pytest.raises(TypeError, match="Invalid value")
+        else:
+            ctx = contextlib.nullcontext()
 
         if indexer_sli is not tm.loc:
             # Note: no .loc because that handles slice edges differently
-            self.check_indexer(obj, key, expected, val, indexer_sli, is_inplace)
+            with ctx:
+                self.check_indexer(obj, key, expected, val, indexer_sli, is_inplace)
 
         ilkey = list(range(len(obj)))[key]
-        self.check_indexer(obj, ilkey, expected, val, indexer_sli, is_inplace)
+        with ctx:
+            self.check_indexer(obj, ilkey, expected, val, indexer_sli, is_inplace)
 
         indkey = np.array(ilkey)
-        self.check_indexer(obj, indkey, expected, val, indexer_sli, is_inplace)
+        with ctx:
+            self.check_indexer(obj, indkey, expected, val, indexer_sli, is_inplace)
 
         genkey = (x for x in indkey)
-        self.check_indexer(obj, genkey, expected, val, indexer_sli, is_inplace)
+        with ctx:
+            self.check_indexer(obj, genkey, expected, val, indexer_sli, is_inplace)
 
-    def test_mask_key(self, obj, key, expected, val, indexer_sli):
+    def test_mask_key(self, obj, key, expected, raises, val, indexer_sli):
         # setitem with boolean mask
         mask = np.zeros(obj.shape, dtype=bool)
         mask[key] = True
@@ -773,10 +816,13 @@ class SetitemCastingEquivalents:
                 indexer_sli(obj)[mask] = val
             return
 
-        indexer_sli(obj)[mask] = val
-        tm.assert_series_equal(obj, expected)
+        if raises:
+            with pytest.raises(TypeError, match="Invalid value"):
+                indexer_sli(obj)[mask] = val
+        else:
+            indexer_sli(obj)[mask] = val
 
-    def test_series_where(self, obj, key, expected, val, is_inplace):
+    def test_series_where(self, obj, key, expected, raises, val, is_inplace):
         mask = np.zeros(obj.shape, dtype=bool)
         mask[key] = True
 
@@ -803,7 +849,7 @@ class SetitemCastingEquivalents:
 
         self._check_inplace(is_inplace, orig, arr, obj)
 
-    def test_index_where(self, obj, key, expected, val):
+    def test_index_where(self, obj, key, expected, raises, val):
         mask = np.zeros(obj.shape, dtype=bool)
         mask[key] = True
 
@@ -811,7 +857,7 @@ class SetitemCastingEquivalents:
         expected_idx = Index(expected, dtype=expected.dtype)
         tm.assert_index_equal(res, expected_idx)
 
-    def test_index_putmask(self, obj, key, expected, val):
+    def test_index_putmask(self, obj, key, expected, raises, val):
         mask = np.zeros(obj.shape, dtype=bool)
         mask[key] = True
 
@@ -820,7 +866,7 @@ class SetitemCastingEquivalents:
 
 
 @pytest.mark.parametrize(
-    "obj,expected,key",
+    "obj,expected,key,raises",
     [
         pytest.param(
             # GH#45568 setting a valid NA value into IntervalDtype[int] should
@@ -831,6 +877,7 @@ class SetitemCastingEquivalents:
                 dtype="interval[float64]",
             ),
             1,
+            True,
             id="interval_int_na_value",
         ),
         pytest.param(
@@ -838,12 +885,14 @@ class SetitemCastingEquivalents:
             Series([2, 3, 4, 5, 6, 7, 8, 9, 10]),
             Series([np.nan, 3, np.nan, 5, np.nan, 7, np.nan, 9, np.nan]),
             slice(None, None, 2),
+            False,
             id="int_series_slice_key_step",
         ),
         pytest.param(
             Series([True, True, False, False]),
             Series([np.nan, True, np.nan, False], dtype=object),
             slice(None, None, 2),
+            True,
             id="bool_series_slice_key_step",
         ),
         pytest.param(
@@ -851,6 +900,7 @@ class SetitemCastingEquivalents:
             Series(np.arange(10)),
             Series([np.nan, np.nan, np.nan, np.nan, np.nan, 5, 6, 7, 8, 9]),
             slice(None, 5),
+            False,
             id="int_series_slice_key",
         ),
         pytest.param(
@@ -858,6 +908,7 @@ class SetitemCastingEquivalents:
             Series([1, 2, 3]),
             Series([np.nan, 2, 3]),
             0,
+            False,
             id="int_series_int_key",
         ),
         pytest.param(
@@ -866,6 +917,7 @@ class SetitemCastingEquivalents:
             Series([np.nan], dtype=object),
             # TODO: maybe go to float64 since we are changing the _whole_ Series?
             0,
+            True,
             id="bool_series_int_key_change_all",
         ),
         pytest.param(
@@ -873,6 +925,7 @@ class SetitemCastingEquivalents:
             Series([False, True]),
             Series([np.nan, True], dtype=object),
             0,
+            True,
             id="bool_series_int_key",
         ),
     ],
@@ -921,6 +974,10 @@ class TestSetitemTimedelta64IntoNumeric(SetitemCastingEquivalents):
     def key(self):
         return 0
 
+    @pytest.fixture
+    def raises(self):
+        return True
+
 
 class TestSetitemDT64IntoInt(SetitemCastingEquivalents):
     # GH#39619 dont cast dt64 to int when doing this setitem
@@ -957,6 +1014,10 @@ class TestSetitemDT64IntoInt(SetitemCastingEquivalents):
             return scalar
         return box([scalar, scalar])
 
+    @pytest.fixture
+    def raises(self):
+        return True
+
 
 class TestSetitemNAPeriodDtype(SetitemCastingEquivalents):
     # Setting compatible NA values into Series with PeriodDtype
@@ -979,6 +1040,10 @@ class TestSetitemNAPeriodDtype(SetitemCastingEquivalents):
     @pytest.fixture(params=[None, np.nan])
     def val(self, request):
         return request.param
+
+    @pytest.fixture
+    def raises(self):
+        return False
 
 
 class TestSetitemNADatetimeLikeDtype(SetitemCastingEquivalents):
@@ -1029,6 +1094,10 @@ class TestSetitemNADatetimeLikeDtype(SetitemCastingEquivalents):
     def key(self):
         return 0
 
+    @pytest.fixture
+    def raises(self, is_inplace):
+        return False if is_inplace else True
+
 
 class TestSetitemMismatchedTZCastsToObject(SetitemCastingEquivalents):
     # GH#24024
@@ -1057,6 +1126,10 @@ class TestSetitemMismatchedTZCastsToObject(SetitemCastingEquivalents):
         )
         return expected
 
+    @pytest.fixture
+    def raises(self):
+        return False
+
 
 @pytest.mark.parametrize(
     "obj,expected",
@@ -1082,6 +1155,10 @@ class TestSeriesNoneCoercion(SetitemCastingEquivalents):
     def val(self):
         return None
 
+    @pytest.fixture
+    def raises(self):
+        return False
+
 
 class TestSetitemFloatIntervalWithIntIntervalValues(SetitemCastingEquivalents):
     # GH#44201 Cast to shared IntervalDtype rather than object
@@ -1092,27 +1169,46 @@ class TestSetitemFloatIntervalWithIntIntervalValues(SetitemCastingEquivalents):
         obj = Series(idx)
         val = Interval(0.5, 1.5)
 
-        obj[0] = val
-        assert obj.dtype == "Interval[float64, right]"
+        with pytest.raises(TypeError, match="Invalid value"):
+            obj[0] = val
 
     @pytest.fixture
     def obj(self):
+        """
+        Fixture to create a Series [(0, 1], (1, 2], (2, 3]]
+        """
         idx = IntervalIndex.from_breaks(range(4))
         return Series(idx)
 
     @pytest.fixture
     def val(self):
+        """
+        Fixture to get an interval (0.5, 1.5]
+        """
         return Interval(0.5, 1.5)
 
     @pytest.fixture
     def key(self):
+        """
+        Fixture to get a key 0
+        """
         return 0
 
     @pytest.fixture
     def expected(self, obj, val):
+        """
+        Fixture to get a Series [(0.5, 1.5], (1.0, 2.0], (2.0, 3.0]]
+        """
         data = [val] + list(obj[1:])
         idx = IntervalIndex(data, dtype="Interval[float64]")
         return Series(idx)
+
+    @pytest.fixture
+    def raises(self):
+        """
+        Fixture to enable raising pytest exceptions
+        """
+        return True
 
 
 class TestSetitemRangeIntoIntegerSeries(SetitemCastingEquivalents):
@@ -1139,13 +1235,20 @@ class TestSetitemRangeIntoIntegerSeries(SetitemCastingEquivalents):
         exp = Series([2, 3, 2, 3, 4], dtype=dtype)
         return exp
 
+    @pytest.fixture
+    def raises(self):
+        return False
+
 
 @pytest.mark.parametrize(
-    "val",
+    "val, raises",
     [
-        np.array([2.0, 3.0]),
-        np.array([2.5, 3.5]),
-        np.array([2**65, 2**65 + 1], dtype=np.float64),  # all ints, but can't cast
+        (np.array([2.0, 3.0]), False),
+        (np.array([2.5, 3.5]), True),
+        (
+            np.array([2**65, 2**65 + 1], dtype=np.float64),
+            True,
+        ),  # all ints, but can't cast
     ],
 )
 class TestSetitemFloatNDarrayIntoIntegerSeries(SetitemCastingEquivalents):
@@ -1183,6 +1286,10 @@ class TestSetitemIntoIntegerSeriesNeedsUpcast(SetitemCastingEquivalents):
     def expected(self):
         return Series([1, 512, 3], dtype=np.int16)
 
+    @pytest.fixture
+    def raises(self):
+        return True
+
 
 @pytest.mark.parametrize("val", [2**33 + 1.0, 2**33 + 1.1, 2**62])
 class TestSmallIntegerSetitemUpcast(SetitemCastingEquivalents):
@@ -1203,6 +1310,10 @@ class TestSmallIntegerSetitemUpcast(SetitemCastingEquivalents):
             dtype = "i8"
         return Series([val, 2, 3], dtype=dtype)
 
+    @pytest.fixture
+    def raises(self):
+        return True
+
 
 class CoercionTest(SetitemCastingEquivalents):
     # Tests ported from tests.indexing.test_coercion
@@ -1219,7 +1330,8 @@ class CoercionTest(SetitemCastingEquivalents):
 
 
 @pytest.mark.parametrize(
-    "val,exp_dtype", [(np.int32(1), np.int8), (np.int16(2**9), np.int16)]
+    "val,exp_dtype,raises",
+    [(np.int32(1), np.int8, None), (np.int16(2**9), np.int16, True)],
 )
 class TestCoercionInt8(CoercionTest):
     # previously test_setitem_series_int8 in tests.indexing.test_coercion
@@ -1236,10 +1348,32 @@ class TestCoercionObject(CoercionTest):
     def obj(self):
         return Series(["a", "b", "c", "d"], dtype=object)
 
+    @pytest.fixture
+    def raises(self):
+        return False
+
 
 @pytest.mark.parametrize(
-    "val,exp_dtype",
-    [(1, np.complex128), (1.1, np.complex128), (1 + 1j, np.complex128), (True, object)],
+    "val,exp_dtype,raises",
+    [
+        (1, object, True),
+        ("e", StringDtype(na_value=np.nan), False),
+    ],
+)
+class TestCoercionString(CoercionTest):
+    @pytest.fixture
+    def obj(self):
+        return Series(["a", "b", "c", "d"], dtype=StringDtype(na_value=np.nan))
+
+
+@pytest.mark.parametrize(
+    "val,exp_dtype,raises",
+    [
+        (1, np.complex128, False),
+        (1.1, np.complex128, False),
+        (1 + 1j, np.complex128, False),
+        (True, object, True),
+    ],
 )
 class TestCoercionComplex(CoercionTest):
     # previously test_setitem_series_complex128 in tests.indexing.test_coercion
@@ -1249,14 +1383,14 @@ class TestCoercionComplex(CoercionTest):
 
 
 @pytest.mark.parametrize(
-    "val,exp_dtype",
+    "val,exp_dtype,raises",
     [
-        (1, object),
-        ("3", object),
-        (3, object),
-        (1.1, object),
-        (1 + 1j, object),
-        (True, bool),
+        (1, object, True),
+        ("3", object, True),
+        (3, object, True),
+        (1.1, object, True),
+        (1 + 1j, object, True),
+        (True, bool, False),
     ],
 )
 class TestCoercionBool(CoercionTest):
@@ -1267,8 +1401,13 @@ class TestCoercionBool(CoercionTest):
 
 
 @pytest.mark.parametrize(
-    "val,exp_dtype",
-    [(1, np.int64), (1.1, np.float64), (1 + 1j, np.complex128), (True, object)],
+    "val,exp_dtype,raises",
+    [
+        (1, np.int64, False),
+        (1.1, np.float64, True),
+        (1 + 1j, np.complex128, True),
+        (True, object, True),
+    ],
 )
 class TestCoercionInt64(CoercionTest):
     # previously test_setitem_series_int64 in tests.indexing.test_coercion
@@ -1278,8 +1417,13 @@ class TestCoercionInt64(CoercionTest):
 
 
 @pytest.mark.parametrize(
-    "val,exp_dtype",
-    [(1, np.float64), (1.1, np.float64), (1 + 1j, np.complex128), (True, object)],
+    "val,exp_dtype,raises",
+    [
+        (1, np.float64, False),
+        (1.1, np.float64, False),
+        (1 + 1j, np.complex128, True),
+        (True, object, True),
+    ],
 )
 class TestCoercionFloat64(CoercionTest):
     # previously test_setitem_series_float64 in tests.indexing.test_coercion
@@ -1289,27 +1433,35 @@ class TestCoercionFloat64(CoercionTest):
 
 
 @pytest.mark.parametrize(
-    "val,exp_dtype",
+    "val,exp_dtype,raises",
     [
-        (1, np.float32),
+        (1, np.float32, False),
         pytest.param(
             1.1,
             np.float32,
+            False,
             marks=pytest.mark.xfail(
+                (
+                    not np_version_gte1p24
+                    or (
+                        np_version_gte1p24
+                        and os.environ.get("NPY_PROMOTION_STATE", "weak") != "weak"
+                    )
+                ),
                 reason="np.float32(1.1) ends up as 1.100000023841858, so "
                 "np_can_hold_element raises and we cast to float64",
             ),
         ),
-        (1 + 1j, np.complex128),
-        (True, object),
-        (np.uint8(2), np.float32),
-        (np.uint32(2), np.float32),
+        (1 + 1j, np.complex128, True),
+        (True, object, True),
+        (np.uint8(2), np.float32, False),
+        (np.uint32(2), np.float32, False),
         # float32 cannot hold np.iinfo(np.uint32).max exactly
         # (closest it can hold is 4294967300.0 which off by 5.0), so
         # we cast to float64
-        (np.uint32(np.iinfo(np.uint32).max), np.float64),
-        (np.uint64(2), np.float32),
-        (np.int64(2), np.float32),
+        (np.uint32(np.iinfo(np.uint32).max), np.float64, True),
+        (np.uint64(2), np.float32, False),
+        (np.int64(2), np.float32, False),
     ],
 )
 class TestCoercionFloat32(CoercionTest):
@@ -1317,17 +1469,54 @@ class TestCoercionFloat32(CoercionTest):
     def obj(self):
         return Series([1.1, 2.2, 3.3, 4.4], dtype=np.float32)
 
-    def test_slice_key(self, obj, key, expected, val, indexer_sli, is_inplace):
-        super().test_slice_key(obj, key, expected, val, indexer_sli, is_inplace)
+    def test_slice_key(self, obj, key, expected, raises, val, indexer_sli, is_inplace):
+        super().test_slice_key(obj, key, expected, raises, val, indexer_sli, is_inplace)
 
-        if type(val) is float:
+        if isinstance(val, float):
             # the xfail would xpass bc test_slice_key short-circuits
             raise AssertionError("xfail not relevant for this test.")
 
 
 @pytest.mark.parametrize(
-    "val,exp_dtype",
-    [(Timestamp("2012-01-01"), "datetime64[ns]"), (1, object), ("x", object)],
+    "exp_dtype",
+    [
+        "M8[ms]",
+        "M8[ms, UTC]",
+        "m8[ms]",
+    ],
+)
+class TestCoercionDatetime64HigherReso(CoercionTest):
+    @pytest.fixture
+    def obj(self, exp_dtype):
+        idx = date_range("2011-01-01", freq="D", periods=4, unit="s")
+        if exp_dtype == "m8[ms]":
+            idx = idx - Timestamp("1970-01-01")
+            assert idx.dtype == "m8[s]"
+        elif exp_dtype == "M8[ms, UTC]":
+            idx = idx.tz_localize("UTC")
+        return Series(idx)
+
+    @pytest.fixture
+    def val(self, exp_dtype):
+        ts = Timestamp("2011-01-02 03:04:05.678").as_unit("ms")
+        if exp_dtype == "m8[ms]":
+            return ts - Timestamp("1970-01-01")
+        elif exp_dtype == "M8[ms, UTC]":
+            return ts.tz_localize("UTC")
+        return ts
+
+    @pytest.fixture
+    def raises(self):
+        return True
+
+
+@pytest.mark.parametrize(
+    "val,exp_dtype,raises",
+    [
+        (Timestamp("2012-01-01"), "datetime64[ns]", False),
+        (1, object, True),
+        ("x", object, True),
+    ],
 )
 class TestCoercionDatetime64(CoercionTest):
     # previously test_setitem_series_datetime64 in tests.indexing.test_coercion
@@ -1336,15 +1525,19 @@ class TestCoercionDatetime64(CoercionTest):
     def obj(self):
         return Series(date_range("2011-01-01", freq="D", periods=4))
 
+    @pytest.fixture
+    def raises(self):
+        return False
+
 
 @pytest.mark.parametrize(
-    "val,exp_dtype",
+    "val,exp_dtype,raises",
     [
-        (Timestamp("2012-01-01", tz="US/Eastern"), "datetime64[ns, US/Eastern]"),
+        (Timestamp("2012-01-01", tz="US/Eastern"), "datetime64[ns, US/Eastern]", False),
         # pre-2.0, a mis-matched tz would end up casting to object
-        (Timestamp("2012-01-01", tz="US/Pacific"), "datetime64[ns, US/Eastern]"),
-        (Timestamp("2012-01-01"), object),
-        (1, object),
+        (Timestamp("2012-01-01", tz="US/Pacific"), "datetime64[ns, US/Eastern]", False),
+        (Timestamp("2012-01-01"), object, True),
+        (1, object, True),
     ],
 )
 class TestCoercionDatetime64TZ(CoercionTest):
@@ -1354,16 +1547,28 @@ class TestCoercionDatetime64TZ(CoercionTest):
         tz = "US/Eastern"
         return Series(date_range("2011-01-01", freq="D", periods=4, tz=tz))
 
+    @pytest.fixture
+    def raises(self):
+        return False
+
 
 @pytest.mark.parametrize(
-    "val,exp_dtype",
-    [(Timedelta("12 day"), "timedelta64[ns]"), (1, object), ("x", object)],
+    "val,exp_dtype,raises",
+    [
+        (Timedelta("12 day"), "timedelta64[ns]", False),
+        (1, object, True),
+        ("x", object, True),
+    ],
 )
 class TestCoercionTimedelta64(CoercionTest):
     # previously test_setitem_series_timedelta64 in tests.indexing.test_coercion
     @pytest.fixture
     def obj(self):
         return Series(timedelta_range("1 day", periods=4))
+
+    @pytest.fixture
+    def raises(self):
+        return False
 
 
 @pytest.mark.parametrize(
@@ -1381,51 +1586,46 @@ class TestPeriodIntervalCoercion(CoercionTest):
     def obj(self, request):
         return Series(request.param)
 
+    @pytest.fixture
+    def raises(self):
+        return True
+
 
 def test_20643():
     # closed by GH#45121
     orig = Series([0, 1, 2], index=["a", "b", "c"])
 
-    expected = Series([0, 2.7, 2], index=["a", "b", "c"])
+    ser = orig.copy()
+    with pytest.raises(TypeError, match="Invalid value"):
+        ser.at["b"] = 2.7
+
+    with pytest.raises(TypeError, match="Invalid value"):
+        ser.loc["b"] = 2.7
+
+    with pytest.raises(TypeError, match="Invalid value"):
+        ser["b"] = 2.7
 
     ser = orig.copy()
-    ser.at["b"] = 2.7
-    tm.assert_series_equal(ser, expected)
+    with pytest.raises(TypeError, match="Invalid value"):
+        ser.iat[1] = 2.7
 
-    ser = orig.copy()
-    ser.loc["b"] = 2.7
-    tm.assert_series_equal(ser, expected)
-
-    ser = orig.copy()
-    ser["b"] = 2.7
-    tm.assert_series_equal(ser, expected)
-
-    ser = orig.copy()
-    ser.iat[1] = 2.7
-    tm.assert_series_equal(ser, expected)
-
-    ser = orig.copy()
-    ser.iloc[1] = 2.7
-    tm.assert_series_equal(ser, expected)
+    with pytest.raises(TypeError, match="Invalid value"):
+        ser.iloc[1] = 2.7
 
     orig_df = orig.to_frame("A")
-    expected_df = expected.to_frame("A")
 
     df = orig_df.copy()
-    df.at["b", "A"] = 2.7
-    tm.assert_frame_equal(df, expected_df)
+    with pytest.raises(TypeError, match="Invalid value"):
+        df.at["b", "A"] = 2.7
 
-    df = orig_df.copy()
-    df.loc["b", "A"] = 2.7
-    tm.assert_frame_equal(df, expected_df)
+    with pytest.raises(TypeError, match="Invalid value"):
+        df.loc["b", "A"] = 2.7
 
-    df = orig_df.copy()
-    df.iloc[1, 0] = 2.7
-    tm.assert_frame_equal(df, expected_df)
+    with pytest.raises(TypeError, match="Invalid value"):
+        df.iloc[1, 0] = 2.7
 
-    df = orig_df.copy()
-    df.iat[1, 0] = 2.7
-    tm.assert_frame_equal(df, expected_df)
+    with pytest.raises(TypeError, match="Invalid value"):
+        df.iat[1, 0] = 2.7
 
 
 def test_20643_comment():
@@ -1447,29 +1647,23 @@ def test_15413():
     # fixed by GH#45121
     ser = Series([1, 2, 3])
 
-    ser[ser == 2] += 0.5
-    expected = Series([1, 2.5, 3])
-    tm.assert_series_equal(ser, expected)
+    with pytest.raises(TypeError, match="Invalid value"):
+        ser[ser == 2] += 0.5
 
-    ser = Series([1, 2, 3])
-    ser[1] += 0.5
-    tm.assert_series_equal(ser, expected)
+    with pytest.raises(TypeError, match="Invalid value"):
+        ser[1] += 0.5
 
-    ser = Series([1, 2, 3])
-    ser.loc[1] += 0.5
-    tm.assert_series_equal(ser, expected)
+    with pytest.raises(TypeError, match="Invalid value"):
+        ser.loc[1] += 0.5
 
-    ser = Series([1, 2, 3])
-    ser.iloc[1] += 0.5
-    tm.assert_series_equal(ser, expected)
+    with pytest.raises(TypeError, match="Invalid value"):
+        ser.iloc[1] += 0.5
 
-    ser = Series([1, 2, 3])
-    ser.iat[1] += 0.5
-    tm.assert_series_equal(ser, expected)
+    with pytest.raises(TypeError, match="Invalid value"):
+        ser.iat[1] += 0.5
 
-    ser = Series([1, 2, 3])
-    ser.at[1] += 0.5
-    tm.assert_series_equal(ser, expected)
+    with pytest.raises(TypeError, match="Invalid value"):
+        ser.at[1] += 0.5
 
 
 def test_32878_int_itemsize():
@@ -1477,9 +1671,8 @@ def test_32878_int_itemsize():
     arr = np.arange(5).astype("i4")
     ser = Series(arr)
     val = np.int64(np.iinfo(np.int64).max)
-    ser[0] = val
-    expected = Series([val, 1, 2, 3, 4], dtype=np.int64)
-    tm.assert_series_equal(ser, expected)
+    with pytest.raises(TypeError, match="Invalid value"):
+        ser[0] = val
 
 
 def test_32878_complex_itemsize():
@@ -1489,18 +1682,15 @@ def test_32878_complex_itemsize():
     val = val.astype("c16")
 
     # GH#32878 used to coerce val to inf+0.000000e+00j
-    ser[0] = val
-    assert ser[0] == val
-    expected = Series([val, 1, 2, 3, 4], dtype="c16")
-    tm.assert_series_equal(ser, expected)
+    with pytest.raises(TypeError, match="Invalid value"):
+        ser[0] = val
 
 
 def test_37692(indexer_al):
     # GH#37692
     ser = Series([1, 2, 3], index=["a", "b", "c"])
-    indexer_al(ser)["b"] = "test"
-    expected = Series([1, "test", 3], index=["a", "b", "c"], dtype=object)
-    tm.assert_series_equal(ser, expected)
+    with pytest.raises(TypeError, match="Invalid value"):
+        indexer_al(ser)["b"] = "test"
 
 
 def test_setitem_bool_int_float_consistency(indexer_sli):
@@ -1510,12 +1700,12 @@ def test_setitem_bool_int_float_consistency(indexer_sli):
     #  as the setitem can be done losslessly
     for dtype in [np.float64, np.int64]:
         ser = Series(0, index=range(3), dtype=dtype)
-        indexer_sli(ser)[0] = True
-        assert ser.dtype == object
+        with pytest.raises(TypeError, match="Invalid value"):
+            indexer_sli(ser)[0] = True
 
         ser = Series(0, index=range(3), dtype=bool)
-        ser[0] = dtype(1)
-        assert ser.dtype == object
+        with pytest.raises(TypeError, match="Invalid value"):
+            ser[0] = dtype(1)
 
     # 1.0 can be held losslessly, so no casting
     ser = Series(0, index=range(3), dtype=np.int64)
@@ -1530,24 +1720,24 @@ def test_setitem_bool_int_float_consistency(indexer_sli):
 def test_setitem_positional_with_casting():
     # GH#45070 case where in __setitem__ we get a KeyError, then when
     #  we fallback we *also* get a ValueError if we try to set inplace.
+    # As of 3.0 we always treat int keys as labels, so this becomes
+    #  setitem-with-expansion
     ser = Series([1, 2, 3], index=["a", "b", "c"])
 
-    warn_msg = "Series.__setitem__ treating keys as positions is deprecated"
-    with tm.assert_produces_warning(FutureWarning, match=warn_msg):
-        ser[0] = "X"
-    expected = Series(["X", 2, 3], index=["a", "b", "c"], dtype=object)
+    ser[0] = "X"
+    expected = Series([1, 2, 3, "X"], index=["a", "b", "c", 0], dtype=object)
     tm.assert_series_equal(ser, expected)
 
 
 def test_setitem_positional_float_into_int_coerces():
     # Case where we hit a KeyError and then trying to set in-place incorrectly
-    #  casts a float to an int
+    #  casts a float to an int;
+    # As of 3.0 we always treat int keys as labels, so this becomes
+    #  setitem-with-expansion
     ser = Series([1, 2, 3], index=["a", "b", "c"])
 
-    warn_msg = "Series.__setitem__ treating keys as positions is deprecated"
-    with tm.assert_produces_warning(FutureWarning, match=warn_msg):
-        ser[0] = 1.5
-    expected = Series([1.5, 2, 3], index=["a", "b", "c"])
+    ser[0] = 1.5
+    expected = Series([1, 2, 3, 1.5], index=["a", "b", "c", 0])
     tm.assert_series_equal(ser, expected)
 
 
@@ -1589,7 +1779,7 @@ def test_setitem_with_bool_indexer():
     # GH#42530
 
     df = DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
-    result = df.pop("b")
+    result = df.pop("b").copy()
     result[[True, False, False]] = 9
     expected = Series(data=[9, 5, 6], name="b")
     tm.assert_series_equal(result, expected)
@@ -1606,11 +1796,7 @@ def test_setitem_with_bool_indexer():
 @pytest.mark.parametrize(
     "item", [2.0, np.nan, np.finfo(float).max, np.finfo(float).min]
 )
-# Test numpy arrays, lists and tuples as the input to be
-# broadcast
-@pytest.mark.parametrize(
-    "box", [lambda x: np.array([x]), lambda x: [x], lambda x: (x,)]
-)
+@pytest.mark.parametrize("box", [np.array, list, tuple])
 def test_setitem_bool_indexer_dont_broadcast_length1_values(size, mask, item, box):
     # GH#44265
     # see also tests.series.indexing.test_where.test_broadcast
@@ -1628,11 +1814,11 @@ def test_setitem_bool_indexer_dont_broadcast_length1_values(size, mask, item, bo
         )
         with pytest.raises(ValueError, match=msg):
             # GH#44265
-            ser[selection] = box(item)
+            ser[selection] = box([item])
     else:
         # In this corner case setting is equivalent to setting with the unboxed
         #  item
-        ser[selection] = box(item)
+        ser[selection] = box([item])
 
         expected = Series(np.arange(size, dtype=float))
         expected[selection] = item

@@ -49,7 +49,7 @@ cdef bytes buf_as_bytes(Buffer buf, size_t offset, size_t length):
 
 cdef Buffer buf_new(size_t length) except *:
     cdef uint8_t *data = <uint8_t *>calloc(length, sizeof(uint8_t))
-    if data == NULL:
+    if data is NULL:
         raise MemoryError(f"Failed to allocate {length} bytes")
     return Buffer(data, length)
 
@@ -62,6 +62,7 @@ cdef buf_free(Buffer buf):
 # algorithm.  It is partially documented here:
 #
 # https://cran.r-project.org/package=sas7bdat/vignettes/sas7bdat.pdf
+# Licence at LICENSES/SAS7BDAT_LICENSE
 cdef int rle_decompress(Buffer inbuff, Buffer outbuff) except? 0:
 
     cdef:

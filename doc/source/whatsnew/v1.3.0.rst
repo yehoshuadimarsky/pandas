@@ -501,13 +501,17 @@ Consistent casting with setting into Boolean Series
 Setting non-boolean values into a :class:`Series` with ``dtype=bool`` now consistently
 casts to ``dtype=object`` (:issue:`38709`)
 
-.. ipython:: python
+.. code-block:: ipython
 
-   orig = pd.Series([True, False])
-   ser = orig.copy()
-   ser.iloc[1] = np.nan
-   ser2 = orig.copy()
-   ser2.iloc[1] = 2.0
+   In [1]: orig = pd.Series([True, False])
+
+   In [2]: ser = orig.copy()
+
+   In [3]: ser.iloc[1] = np.nan
+
+   In [4]: ser2 = orig.copy()
+
+   In [5]: ser2.iloc[1] = 2.0
 
 *Previous behavior*:
 
@@ -527,10 +531,19 @@ casts to ``dtype=object`` (:issue:`38709`)
 
 *New behavior*:
 
-.. ipython:: python
+.. code-block:: ipython
 
-   ser
-   ser2
+   In [1]: ser
+   Out [1]:
+   0    True
+   1     NaN
+   dtype: object
+
+   In [2]:ser2
+   Out [2]:
+   0    True
+   1     2.0
+   dtype: object
 
 
 .. _whatsnew_130.notable_bug_fixes.rolling_groupby_column:
@@ -962,7 +975,7 @@ Numeric
 - Bug in :class:`Series` and :class:`DataFrame` reductions with methods ``any`` and ``all`` not returning Boolean results for object data (:issue:`12863`, :issue:`35450`, :issue:`27709`)
 - Bug in :meth:`Series.clip` would fail if the Series contains NA values and has nullable int or float as a data type (:issue:`40851`)
 - Bug in :meth:`UInt64Index.where` and :meth:`UInt64Index.putmask` with an ``np.int64`` dtype ``other`` incorrectly raising ``TypeError`` (:issue:`41974`)
-- Bug in :meth:`DataFrame.agg()` not sorting the aggregated axis in the order of the provided aggregation functions when one or more aggregation function fails to produce results (:issue:`33634`)
+- Bug in :meth:`DataFrame.agg` not sorting the aggregated axis in the order of the provided aggregation functions when one or more aggregation function fails to produce results (:issue:`33634`)
 - Bug in :meth:`DataFrame.clip` not interpreting missing values as no threshold (:issue:`40420`)
 
 Conversion

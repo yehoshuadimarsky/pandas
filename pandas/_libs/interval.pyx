@@ -39,7 +39,6 @@ from pandas._libs.tslibs.timezones cimport tz_compare
 from pandas._libs.tslibs.util cimport (
     is_float_object,
     is_integer_object,
-    is_timedelta64_object,
 )
 
 VALID_CLOSED = frozenset(["left", "right", "both", "neither"])
@@ -168,6 +167,12 @@ cdef class IntervalMixin:
         """
         Return the midpoint of the Interval.
 
+        See Also
+        --------
+        Interval.left : Return the left bound for the interval.
+        Interval.right : Return the right bound for the interval.
+        Interval.length : Return the length of the interval.
+
         Examples
         --------
         >>> iv = pd.Interval(0, 5)
@@ -203,6 +208,12 @@ cdef class IntervalMixin:
     def is_empty(self):
         """
         Indicates if an interval is empty, meaning it contains no points.
+
+        An interval is considered empty if its `left` and `right` endpoints
+        are equal, and it is not closed on both sides. This means that the
+        interval does not include any real points. In the case of an
+        :class:`pandas.arrays.IntervalArray` or :class:`IntervalIndex`, the
+        property returns a boolean array indicating the emptiness of each interval.
 
         Returns
         -------
@@ -286,7 +297,7 @@ cdef class Interval(IntervalMixin):
     """
     Immutable object implementing an Interval, a bounded slice-like interval.
 
-    Parameters
+    Attributes
     ----------
     left : orderable scalar
         Left bound for the interval.
@@ -378,6 +389,12 @@ cdef class Interval(IntervalMixin):
     """
     Left bound for the interval.
 
+    See Also
+    --------
+    Interval.right : Return the right bound for the interval.
+    numpy.ndarray.left : A similar method in numpy for obtaining
+        the left endpoint(s) of intervals.
+
     Examples
     --------
     >>> interval = pd.Interval(left=1, right=2, closed='left')
@@ -390,6 +407,12 @@ cdef class Interval(IntervalMixin):
     cdef readonly object right
     """
     Right bound for the interval.
+
+    See Also
+    --------
+    Interval.left : Return the left bound for the interval.
+    numpy.ndarray.right : A similar method in numpy for obtaining
+        the right endpoint(s) of intervals.
 
     Examples
     --------
@@ -405,6 +428,13 @@ cdef class Interval(IntervalMixin):
     String describing the inclusive side the intervals.
 
     Either ``left``, ``right``, ``both`` or ``neither``.
+
+    See Also
+    --------
+    Interval.closed_left : Check if the interval is closed on the left side.
+    Interval.closed_right : Check if the interval is closed on the right side.
+    Interval.open_left : Check if the interval is open on the left side.
+    Interval.open_right : Check if the interval is open on the right side.
 
     Examples
     --------
@@ -478,56 +508,31 @@ cdef class Interval(IntervalMixin):
         args = (self.left, self.right, self.closed)
         return (type(self), args)
 
-    def _repr_base(self):
-        left = self.left
-        right = self.right
-
-        # TODO: need more general formatting methodology here
-        if isinstance(left, _Timestamp) and isinstance(right, _Timestamp):
-            left = left._short_repr
-            right = right._short_repr
-
-        return left, right
-
     def __repr__(self) -> str:
-
-        left, right = self._repr_base()
+        disp = str if isinstance(self.left, (np.generic, _Timestamp)) else repr
         name = type(self).__name__
-        repr_str = f"{name}({repr(left)}, {repr(right)}, closed={repr(self.closed)})"
+        repr_str = f"{name}({disp(self.left)}, {disp(self.right)}, closed={repr(self.closed)})"  # noqa: E501
         return repr_str
 
     def __str__(self) -> str:
-
-        left, right = self._repr_base()
         start_symbol = "[" if self.closed_left else "("
         end_symbol = "]" if self.closed_right else ")"
-        return f"{start_symbol}{left}, {right}{end_symbol}"
+        return f"{start_symbol}{self.left}, {self.right}{end_symbol}"
 
     def __add__(self, y):
         if (
             isinstance(y, numbers.Number)
             or PyDelta_Check(y)
-            or is_timedelta64_object(y)
+            or cnp.is_timedelta64_object(y)
         ):
             return Interval(self.left + y, self.right + y, closed=self.closed)
-        elif (
-            # __radd__ pattern
-            # TODO(cython3): remove this
-            isinstance(y, Interval)
-            and (
-                isinstance(self, numbers.Number)
-                or PyDelta_Check(self)
-                or is_timedelta64_object(self)
-            )
-        ):
-            return Interval(y.left + self, y.right + self, closed=y.closed)
         return NotImplemented
 
     def __radd__(self, other):
         if (
                 isinstance(other, numbers.Number)
                 or PyDelta_Check(other)
-                or is_timedelta64_object(other)
+                or cnp.is_timedelta64_object(other)
         ):
             return Interval(self.left + other, self.right + other, closed=self.closed)
         return NotImplemented
@@ -536,7 +541,7 @@ cdef class Interval(IntervalMixin):
         if (
             isinstance(y, numbers.Number)
             or PyDelta_Check(y)
-            or is_timedelta64_object(y)
+            or cnp.is_timedelta64_object(y)
         ):
             return Interval(self.left - y, self.right - y, closed=self.closed)
         return NotImplemented
@@ -544,10 +549,6 @@ cdef class Interval(IntervalMixin):
     def __mul__(self, y):
         if isinstance(y, numbers.Number):
             return Interval(self.left * y, self.right * y, closed=self.closed)
-        elif isinstance(y, Interval) and isinstance(self, numbers.Number):
-            # __radd__ semantics
-            # TODO(cython3): remove this
-            return Interval(y.left * self, y.right * self, closed=y.closed)
         return NotImplemented
 
     def __rmul__(self, other):

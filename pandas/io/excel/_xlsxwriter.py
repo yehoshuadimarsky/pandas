@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import json
 from typing import (
     TYPE_CHECKING,
     Any,
 )
-
-from pandas._libs import json
 
 from pandas.io.excel._base import ExcelWriter
 from pandas.io.excel._util import (
@@ -15,6 +14,7 @@ from pandas.io.excel._util import (
 
 if TYPE_CHECKING:
     from pandas._typing import (
+        ExcelWriterIfSheetExists,
         FilePath,
         StorageOptions,
         WriteExcelBuffer,
@@ -93,7 +93,7 @@ class _XlsxStyler:
     }
 
     @classmethod
-    def convert(cls, style_dict, num_format_str=None):
+    def convert(cls, style_dict, num_format_str=None) -> dict[str, Any]:
         """
         converts a style_dict to an xlsxwriter format dict
 
@@ -181,15 +181,15 @@ class XlsxWriter(ExcelWriter):
     _engine = "xlsxwriter"
     _supported_extensions = (".xlsx",)
 
-    def __init__(
+    def __init__(  # pyright: ignore[reportInconsistentConstructor]
         self,
         path: FilePath | WriteExcelBuffer | ExcelWriter,
         engine: str | None = None,
         date_format: str | None = None,
         datetime_format: str | None = None,
         mode: str = "w",
-        storage_options: StorageOptions = None,
-        if_sheet_exists: str | None = None,
+        storage_options: StorageOptions | None = None,
+        if_sheet_exists: ExcelWriterIfSheetExists | None = None,
         engine_kwargs: dict[str, Any] | None = None,
         **kwargs,
     ) -> None:

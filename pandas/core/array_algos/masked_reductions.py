@@ -2,12 +2,10 @@
 masked_reductions.py is for reduction algorithms using a mask-based approach
 for missing values.
 """
+
 from __future__ import annotations
 
-from typing import (
-    TYPE_CHECKING,
-    Callable,
-)
+from typing import TYPE_CHECKING
 import warnings
 
 import numpy as np
@@ -17,6 +15,8 @@ from pandas._libs import missing as libmissing
 from pandas.core.nanops import check_below_min_count
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from pandas._typing import (
         AxisInt,
         npt,
@@ -52,7 +52,7 @@ def _reductions(
     axis : int, optional, default None
     """
     if not skipna:
-        if mask.any(axis=axis) or check_below_min_count(values.shape, None, min_count):
+        if mask.any() or check_below_min_count(values.shape, None, min_count):
             return libmissing.NA
         else:
             return func(values, axis=axis, **kwargs)
@@ -62,6 +62,10 @@ def _reductions(
         ):
             return libmissing.NA
 
+        if values.dtype == np.dtype(object):
+            # object dtype does not support `where` without passing an initial
+            values = values[~mask]
+            return func(values, axis=axis, **kwargs)
         return func(values, where=~mask, axis=axis, **kwargs)
 
 
@@ -119,11 +123,11 @@ def _minmax(
             # min/max with empty array raise in numpy, pandas returns NA
             return libmissing.NA
         else:
-            return func(values)
+            return func(values, axis=axis)
     else:
         subset = values[~mask]
         if subset.size:
-            return func(subset)
+            return func(subset, axis=axis)
         else:
             # min/max with empty array raise in numpy, pandas returns NA
             return libmissing.NA

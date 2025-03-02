@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from typing import (
     TYPE_CHECKING,
-    Sequence,
     cast,
 )
-import warnings
 
 import numpy as np
 
@@ -17,7 +15,6 @@ from pandas._libs import (
 )
 from pandas._libs.missing import NA
 from pandas.util._decorators import cache_readonly
-from pandas.util._exceptions import find_stack_level
 
 from pandas.core.dtypes.cast import (
     ensure_dtype_can_hold_na,
@@ -25,22 +22,13 @@ from pandas.core.dtypes.cast import (
 )
 from pandas.core.dtypes.common import (
     is_1d_only_ea_dtype,
-    is_scalar,
     needs_i8_conversion,
 )
 from pandas.core.dtypes.concat import concat_compat
-from pandas.core.dtypes.dtypes import (
-    ExtensionDtype,
-    SparseDtype,
-)
-from pandas.core.dtypes.missing import (
-    is_valid_na_for_dtype,
-    isna,
-    isna_all,
-)
+from pandas.core.dtypes.dtypes import ExtensionDtype
+from pandas.core.dtypes.missing import is_valid_na_for_dtype
 
 from pandas.core.construction import ensure_wrapped_if_datetimelike
-from pandas.core.internals.array_manager import ArrayManager
 from pandas.core.internals.blocks import (
     ensure_block_shape,
     new_block_2d,
@@ -51,11 +39,15 @@ from pandas.core.internals.managers import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import (
+        Generator,
+        Sequence,
+    )
+
     from pandas._typing import (
         ArrayLike,
         AxisInt,
         DtypeObj,
-        Manager2D,
         Shape,
     )
 
@@ -66,33 +58,9 @@ if TYPE_CHECKING:
     )
 
 
-def _concatenate_array_managers(
-    mgrs: list[ArrayManager], axes: list[Index], concat_axis: AxisInt
-) -> Manager2D:
-    """
-    Concatenate array managers into one.
-
-    Parameters
-    ----------
-    mgrs_indexers : list of (ArrayManager, {axis: indexer,...}) tuples
-    axes : list of Index
-    concat_axis : int
-
-    Returns
-    -------
-    ArrayManager
-    """
-    if concat_axis == 1:
-        return mgrs[0].concat_vertical(mgrs, axes)
-    else:
-        # concatting along the columns -> combine reindexed arrays in a single manager
-        assert concat_axis == 0
-        return mgrs[0].concat_horizontal(mgrs, axes)
-
-
 def concatenate_managers(
     mgrs_indexers, axes: list[Index], concat_axis: AxisInt, copy: bool
-) -> Manager2D:
+) -> BlockManager:
     """
     Concatenate block managers into one.
 
@@ -110,16 +78,6 @@ def concatenate_managers(
 
     needs_copy = copy and concat_axis == 0
 
-    # TODO(ArrayManager) this assumes that all managers are of the same type
-    if isinstance(mgrs_indexers[0][0], ArrayManager):
-        mgrs = _maybe_reindex_columns_na_proxy(axes, mgrs_indexers, needs_copy)
-        # error: Argument 1 to "_concatenate_array_managers" has incompatible
-        # type "List[BlockManager]"; expected "List[Union[ArrayManager,
-        # SingleArrayManager, BlockManager, SingleBlockManager]]"
-        return _concatenate_array_managers(
-            mgrs, axes, concat_axis  # type: ignore[arg-type]
-        )
-
     # Assertions disabled for performance
     # for tup in mgrs_indexers:
     #    # caller is responsible for ensuring this
@@ -135,6 +93,7 @@ def concatenate_managers(
         if first_dtype in [np.float64, np.float32]:
             # TODO: support more dtypes here.  This will be simpler once
             #  JoinUnit.is_na behavior is deprecated.
+            #  (update 2024-04-13 that deprecation has been enforced)
             if (
                 all(_is_homogeneous_mgr(mgr, first_dtype) for mgr, _ in mgrs_indexers)
                 and len(mgrs_indexers) > 1
@@ -153,12 +112,10 @@ def concatenate_managers(
         out.axes = axes
         return out
 
-    concat_plan = _get_combined_plan(mgrs)
-
     blocks = []
     values: ArrayLike
 
-    for placement, join_units in concat_plan:
+    for placement, join_units in _get_combined_plan(mgrs):
         unit = join_units[0]
         blk = unit.block
 
@@ -176,7 +133,7 @@ def concatenate_managers(
                 values = np.concatenate(vals, axis=1)  # type: ignore[arg-type]
             elif is_1d_only_ea_dtype(blk.dtype):
                 # TODO(EA2D): special-casing not needed with 2D EAs
-                values = concat_compat(vals, axis=1, ea_compat_axis=True)
+                values = concat_compat(vals, axis=0, ea_compat_axis=True)
                 values = ensure_block_shape(values, ndim=2)
             else:
                 values = concat_compat(vals, axis=1)
@@ -220,7 +177,6 @@ def _maybe_reindex_columns_na_proxy(
                 axes[i],
                 indexers[i],
                 axis=i,
-                copy=False,
                 only_slice=True,  # only relevant for i==0
                 allow_dups=True,
                 use_na_proxy=True,  # only relevant for i==0
@@ -254,6 +210,15 @@ def _concat_homogeneous_fastpath(
     """
     # assumes
     #  all(_is_homogeneous_mgr(mgr, first_dtype) for mgr, _ in in mgrs_indexers)
+
+    if all(not indexers for _, indexers in mgrs_indexers):
+        # https://github.com/pandas-dev/pandas/pull/52685#issuecomment-1523287739
+        arrs = [mgr.blocks[0].values.T for mgr, _ in mgrs_indexers]
+        arr = np.concatenate(arrs).T
+        bp = libinternals.BlockPlacement(slice(shape[0]))
+        nb = new_block_2d(arr, bp)
+        return nb
+
     arr = np.empty(shape, dtype=first_dtype)
 
     if first_dtype == np.float64:
@@ -285,14 +250,12 @@ def _concat_homogeneous_fastpath(
 
 def _get_combined_plan(
     mgrs: list[BlockManager],
-) -> list[tuple[BlockPlacement, list[JoinUnit]]]:
-    plan = []
-
+) -> Generator[tuple[BlockPlacement, list[JoinUnit]]]:
     max_len = mgrs[0].shape[0]
 
     blknos_list = [mgr.blknos for mgr in mgrs]
     pairs = libinternals.get_concat_blkno_indexers(blknos_list)
-    for ind, (blknos, bp) in enumerate(pairs):
+    for blknos, bp in pairs:
         # assert bp.is_slice_like
         # assert len(bp) > 0
 
@@ -304,9 +267,7 @@ def _get_combined_plan(
             unit = JoinUnit(nb)
             units_for_bp.append(unit)
 
-        plan.append((bp, units_for_bp))
-
-    return plan
+        yield bp, units_for_bp
 
 
 def _get_block_for_concat_plan(
@@ -342,7 +303,7 @@ class JoinUnit:
         self.block = block
 
     def __repr__(self) -> str:
-        return f"{type(self).__name__}({repr(self.block)})"
+        return f"{type(self).__name__}({self.block!r})"
 
     def _is_valid_na_for(self, dtype: DtypeObj) -> bool:
         """
@@ -381,41 +342,6 @@ class JoinUnit:
         blk = self.block
         if blk.dtype.kind == "V":
             return True
-
-        if not blk._can_hold_na:
-            return False
-
-        values = blk.values
-        if values.size == 0:
-            return True
-        if isinstance(values.dtype, SparseDtype):
-            return False
-
-        if values.ndim == 1:
-            # TODO(EA2D): no need for special case with 2D EAs
-            val = values[0]
-            if not is_scalar(val) or not isna(val):
-                # ideally isna_all would do this short-circuiting
-                return False
-            return isna_all(values)
-        else:
-            val = values[0][0]
-            if not is_scalar(val) or not isna(val):
-                # ideally isna_all would do this short-circuiting
-                return False
-            return all(isna_all(row) for row in values)
-
-    @cache_readonly
-    def is_na_without_isna_all(self) -> bool:
-        blk = self.block
-        if blk.dtype.kind == "V":
-            return True
-        if not blk._can_hold_na:
-            return False
-
-        values = blk.values
-        if values.size == 0:
-            return True
         return False
 
     def get_reindexed_values(self, empty_dtype: DtypeObj, upcasted_na) -> ArrayLike:
@@ -448,7 +374,7 @@ def _concatenate_join_units(join_units: list[JoinUnit], copy: bool) -> ArrayLike
     """
     Concatenate values from several join units along axis=1.
     """
-    empty_dtype, empty_dtype_future = _get_empty_dtype(join_units)
+    empty_dtype = _get_empty_dtype(join_units)
 
     has_none_blocks = any(unit.block.dtype.kind == "V" for unit in join_units)
     upcasted_na = _dtype_to_na_value(empty_dtype, has_none_blocks)
@@ -464,9 +390,7 @@ def _concatenate_join_units(join_units: list[JoinUnit], copy: bool) -> ArrayLike
         # error: No overload variant of "__getitem__" of "ExtensionArray" matches
         # argument type "Tuple[int, slice]"
         to_concat = [
-            t
-            if is_1d_only_ea_dtype(t.dtype)
-            else t[0, :]  # type: ignore[call-overload]
+            t if is_1d_only_ea_dtype(t.dtype) else t[0, :]  # type: ignore[call-overload]
             for t in to_concat
         ]
         concat_values = concat_compat(to_concat, axis=0, ea_compat_axis=True)
@@ -474,19 +398,6 @@ def _concatenate_join_units(join_units: list[JoinUnit], copy: bool) -> ArrayLike
 
     else:
         concat_values = concat_compat(to_concat, axis=1)
-
-    if empty_dtype != empty_dtype_future:
-        if empty_dtype == concat_values.dtype:
-            # GH#40893
-            warnings.warn(
-                "The behavior of DataFrame concatenation with all-NA entries is "
-                "deprecated. In a future version, this will no longer exclude "
-                "all-NA columns when determining the result dtypes. "
-                "To retain the old behavior, cast the all-NA columns to the "
-                "desired dtype before the concat operation.",
-                FutureWarning,
-                stacklevel=find_stack_level(),
-            )
 
     return concat_values
 
@@ -514,7 +425,7 @@ def _dtype_to_na_value(dtype: DtypeObj, has_none_blocks: bool):
     raise NotImplementedError
 
 
-def _get_empty_dtype(join_units: Sequence[JoinUnit]) -> tuple[DtypeObj, DtypeObj]:
+def _get_empty_dtype(join_units: Sequence[JoinUnit]) -> DtypeObj:
     """
     Return dtype and N/A values to use when concatenating specified units.
 
@@ -526,36 +437,17 @@ def _get_empty_dtype(join_units: Sequence[JoinUnit]) -> tuple[DtypeObj, DtypeObj
     """
     if lib.dtypes_all_equal([ju.block.dtype for ju in join_units]):
         empty_dtype = join_units[0].block.dtype
-        return empty_dtype, empty_dtype
+        return empty_dtype
 
     has_none_blocks = any(unit.block.dtype.kind == "V" for unit in join_units)
 
     dtypes = [unit.block.dtype for unit in join_units if not unit.is_na]
-    if not len(dtypes):
-        dtypes = [
-            unit.block.dtype for unit in join_units if unit.block.dtype.kind != "V"
-        ]
 
     dtype = find_common_type(dtypes)
     if has_none_blocks:
         dtype = ensure_dtype_can_hold_na(dtype)
 
-    dtype_future = dtype
-    if len(dtypes) != len(join_units):
-        dtypes_future = [
-            unit.block.dtype for unit in join_units if not unit.is_na_without_isna_all
-        ]
-        if not len(dtypes_future):
-            dtypes_future = [
-                unit.block.dtype for unit in join_units if unit.block.dtype.kind != "V"
-            ]
-
-        if len(dtypes) != len(dtypes_future):
-            dtype_future = find_common_type(dtypes_future)
-            if has_none_blocks:
-                dtype_future = ensure_dtype_can_hold_na(dtype_future)
-
-    return dtype, dtype_future
+    return dtype
 
 
 def _is_uniform_join_units(join_units: list[JoinUnit]) -> bool:

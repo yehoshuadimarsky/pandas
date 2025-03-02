@@ -21,12 +21,12 @@ cdef _Timestamp create_timestamp_from_ts(int64_t value,
 
 cdef class _Timestamp(ABCTimestamp):
     cdef readonly:
-        int64_t _value, nanosecond, year
+        int64_t _value, _nanosecond, _year
         NPY_DATETIMEUNIT _creso
 
     cdef bint _get_start_end_field(self, str field, freq)
     cdef _get_date_name_field(self, str field, object locale)
-    cdef int64_t _maybe_convert_value_to_local(self)
+    cdef int64_t _maybe_convert_value_to_local(self) except? -1
     cdef bint _can_compare(self, datetime other)
     cpdef to_datetime64(self)
     cpdef datetime to_pydatetime(_Timestamp self, bint warn=*)

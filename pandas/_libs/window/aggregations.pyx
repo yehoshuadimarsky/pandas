@@ -51,13 +51,13 @@ cdef extern from "pandas/skiplist.h":
     int skiplist_min_rank(skiplist_t*, double) nogil
 
 cdef:
-    float32_t MINfloat32 = np.NINF
-    float64_t MINfloat64 = np.NINF
+    float32_t MINfloat32 = -np.inf
+    float64_t MINfloat64 = -np.inf
 
     float32_t MAXfloat32 = np.inf
     float64_t MAXfloat64 = np.inf
 
-    float64_t NaN = <float64_t>np.NaN
+    float64_t NaN = <float64_t>np.nan
 
 cdef bint is_monotonic_increasing_start_end_bounds(
     ndarray[int64_t, ndim=1] start, ndarray[int64_t, ndim=1] end
@@ -987,9 +987,8 @@ def roll_median_c(const float64_t[:] values, ndarray[int64_t] start,
 
 # ----------------------------------------------------------------------
 
-# Moving maximum / minimum code taken from Bottleneck under the terms
-# of its Simplified BSD license
-# https://github.com/pydata/bottleneck
+# Moving maximum / minimum code taken from Bottleneck
+# Licence at LICENSES/BOTTLENECK_LICENCE
 
 
 cdef float64_t init_mm(float64_t ai, Py_ssize_t *nobs, bint is_max) noexcept nogil:
@@ -1131,6 +1130,89 @@ cdef _roll_min_max(ndarray[float64_t] values,
                 output[i] = calc_mm(minp, nobs, values[Q.front()])
             else:
                 output[i] = NaN
+
+    return output
+
+# ----------------------------------------------------------------------
+# Rolling first, last
+
+
+def roll_first(const float64_t[:] values, ndarray[int64_t] start,
+               ndarray[int64_t] end, int64_t minp) -> np.ndarray:
+    return _roll_first_last(values, start, end, minp, is_first=1)
+
+
+def roll_last(const float64_t[:] values, ndarray[int64_t] start,
+              ndarray[int64_t] end, int64_t minp) -> np.ndarray:
+    return _roll_first_last(values, start, end, minp, is_first=0)
+
+
+cdef _roll_first_last(const float64_t[:] values, ndarray[int64_t] start,
+                      ndarray[int64_t] end, int64_t minp, bint is_first):
+    cdef:
+        Py_ssize_t i, j, fl_idx
+        bint is_monotonic_increasing_bounds
+        int64_t nobs = 0, N = len(start), s, e
+        float64_t val, res
+        ndarray[float64_t] output
+
+    is_monotonic_increasing_bounds = is_monotonic_increasing_start_end_bounds(
+        start, end
+    )
+
+    output = np.empty(N, dtype=np.float64)
+
+    if (end - start).max() == 0:
+        output[:] = NaN
+        return output
+
+    with nogil:
+        for i in range(0, N):
+            s = start[i]
+            e = end[i]
+
+            if i == 0 or not is_monotonic_increasing_bounds or s >= end[i - 1]:
+                fl_idx = -1
+                nobs = 0
+                for j in range(s, e):
+                    val = values[j]
+                    if val == val:
+                        if not is_first or fl_idx < s:
+                            fl_idx = j
+                        nobs += 1
+            else:
+                # handle deletes
+                for j in range(start[i - 1], s):
+                    val = values[j]
+                    if val == val:
+                        nobs -= 1
+
+                # update fl_idx if out of range, if first
+                if is_first and fl_idx < s:
+                    fl_idx = -1
+                    for j in range(s, end[i - 1]):
+                        val = values[j]
+                        if val == val:
+                            fl_idx = j
+                            break
+
+                # handle adds
+                for j in range(end[i - 1], e):
+                    val = values[j]
+                    if val == val:
+                        if not is_first or fl_idx < s:
+                            fl_idx = j
+                        nobs += 1
+
+            if nobs >= minp and fl_idx >= s:
+                res = values[fl_idx]
+            else:
+                res = NaN
+
+            output[i] = res
+
+            if not is_monotonic_increasing_bounds:
+                nobs = 0
 
     return output
 
@@ -1814,6 +1896,9 @@ def ewm(const float64_t[:] vals, const int64_t[:] start, const int64_t[:] end,
                             if normalize:
                                 # avoid numerical errors on constant series
                                 if weighted != cur:
+                                    if not adjust and com == 1:
+                                        # update in case of irregular-interval series
+                                        new_wt = 1. - old_wt
                                     weighted = old_wt * weighted + new_wt * cur
                                     weighted /= (old_wt + new_wt)
                                 if adjust:

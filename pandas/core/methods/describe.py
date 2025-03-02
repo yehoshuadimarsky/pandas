@@ -3,6 +3,7 @@ Module responsible for execution of NDFrame.describe() method.
 
 Method NDFrame.describe() delegates actual execution to function describe_ndframe().
 """
+
 from __future__ import annotations
 
 from abc import (
@@ -11,15 +12,11 @@ from abc import (
 )
 from typing import (
     TYPE_CHECKING,
-    Callable,
-    Hashable,
-    Sequence,
     cast,
 )
 
 import numpy as np
 
-from pandas._libs.tslibs import Timestamp
 from pandas._typing import (
     DtypeObj,
     NDFrameT,
@@ -43,6 +40,12 @@ from pandas.core.reshape.concat import concat
 from pandas.io.formats.format import format_percentiles
 
 if TYPE_CHECKING:
+    from collections.abc import (
+        Callable,
+        Hashable,
+        Sequence,
+    )
+
     from pandas import (
         DataFrame,
         Series,
@@ -143,6 +146,8 @@ class DataFrameDescriber(NDFrameDescriberAbstract):
         A black list of data types to omit from the result.
     """
 
+    obj: DataFrame
+
     def __init__(
         self,
         obj: DataFrame,
@@ -168,8 +173,9 @@ class DataFrameDescriber(NDFrameDescriberAbstract):
 
         col_names = reorder_columns(ldesc)
         d = concat(
-            [x.reindex(col_names, copy=False) for x in ldesc],
+            [x.reindex(col_names) for x in ldesc],
             axis=1,
+            ignore_index=True,
             sort=False,
         )
         d.columns = data.columns.copy()
@@ -193,16 +199,18 @@ class DataFrameDescriber(NDFrameDescriberAbstract):
                 include=self.include,
                 exclude=self.exclude,
             )
-        return data  # pyright: ignore[reportGeneralTypeIssues]
+        return data
 
 
 def reorder_columns(ldesc: Sequence[Series]) -> list[Hashable]:
     """Set a convenient order for rows for display."""
     names: list[Hashable] = []
+    seen_names: set[Hashable] = set()
     ldesc_indexes = sorted((x.index for x in ldesc), key=len)
     for idxnames in ldesc_indexes:
         for name in idxnames:
-            if name not in names:
+            if name not in seen_names:
+                seen_names.add(name)
                 names.append(name)
     return names
 
@@ -274,54 +282,6 @@ def describe_categorical_1d(
         dtype = "object"
 
     result = [data.count(), count_unique, top, freq]
-
-    from pandas import Series
-
-    return Series(result, index=names, name=data.name, dtype=dtype)
-
-
-def describe_timestamp_as_categorical_1d(
-    data: Series,
-    percentiles_ignored: Sequence[float],
-) -> Series:
-    """Describe series containing timestamp data treated as categorical.
-
-    Parameters
-    ----------
-    data : Series
-        Series to be described.
-    percentiles_ignored : list-like of numbers
-        Ignored, but in place to unify interface.
-    """
-    names = ["count", "unique"]
-    objcounts = data.value_counts()
-    count_unique = len(objcounts[objcounts != 0])
-    result = [data.count(), count_unique]
-    dtype = None
-    if count_unique > 0:
-        top, freq = objcounts.index[0], objcounts.iloc[0]
-        tz = data.dt.tz
-        asint = data.dropna().values.view("i8")
-        top = Timestamp(top)
-        if top.tzinfo is not None and tz is not None:
-            # Don't tz_localize(None) if key is already tz-aware
-            top = top.tz_convert(tz)
-        else:
-            top = top.tz_localize(tz)
-        names += ["top", "freq", "first", "last"]
-        result += [
-            top,
-            freq,
-            Timestamp(asint.min(), tz=tz),
-            Timestamp(asint.max(), tz=tz),
-        ]
-
-    # If the DataFrame is empty, set 'top' and 'freq' to None
-    # to maintain output shape consistency
-    else:
-        names += ["top", "freq"]
-        result += [np.nan, np.nan]
-        dtype = "object"
 
     from pandas import Series
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 __docformat__ = "restructuredtext"
 
 # Let users know if they're missing any of our hard dependencies
-_hard_dependencies = ("numpy", "pytz", "dateutil")
+_hard_dependencies = ("numpy", "dateutil")
 _missing_dependencies = []
 
 for _dependency in _hard_dependencies:
@@ -21,14 +21,15 @@ del _hard_dependencies, _dependency, _missing_dependencies
 try:
     # numpy compat
     from pandas.compat import (
-        is_numpy_dev as _is_numpy_dev,  # pyright: ignore[reportUnusedImport] # noqa: F401,E501
+        is_numpy_dev as _is_numpy_dev,  # pyright: ignore[reportUnusedImport] # noqa: F401
     )
 except ImportError as _err:  # pragma: no cover
     _module = _err.name
     raise ImportError(
         f"C extension: {_module} not built. If you want to import "
         "pandas from the source directory, you may need to run "
-        "'python setup.py build_ext' to build the C extensions first."
+        "'python -m pip install -ve . --no-build-isolation -Ceditable-verbose=true' "
+        "to build the C extensions first."
     ) from _err
 
 from pandas._config import (
@@ -99,7 +100,6 @@ from pandas.core.api import (
     Grouper,
     factorize,
     unique,
-    value_counts,
     NamedAgg,
     array,
     Categorical,
@@ -160,7 +160,6 @@ from pandas.io.api import (
     read_parquet,
     read_orc,
     read_feather,
-    read_gbq,
     read_html,
     read_xml,
     read_json,
@@ -236,6 +235,7 @@ Here are just a few of the things that pandas does well:
 # Pandas is not (yet) a py.typed library: the public API is determined
 # based on the documentation.
 __all__ = [
+    "NA",
     "ArrowDtype",
     "BooleanDtype",
     "Categorical",
@@ -254,15 +254,14 @@ __all__ = [
     "HDFStore",
     "Index",
     "IndexSlice",
+    "Int8Dtype",
     "Int16Dtype",
     "Int32Dtype",
     "Int64Dtype",
-    "Int8Dtype",
     "Interval",
     "IntervalDtype",
     "IntervalIndex",
     "MultiIndex",
-    "NA",
     "NaT",
     "NamedAgg",
     "Period",
@@ -275,10 +274,10 @@ __all__ = [
     "Timedelta",
     "TimedeltaIndex",
     "Timestamp",
+    "UInt8Dtype",
     "UInt16Dtype",
     "UInt32Dtype",
     "UInt64Dtype",
-    "UInt8Dtype",
     "api",
     "array",
     "arrays",
@@ -291,8 +290,8 @@ __all__ = [
     "errors",
     "eval",
     "factorize",
-    "get_dummies",
     "from_dummies",
+    "get_dummies",
     "get_option",
     "infer_freq",
     "interval_range",
@@ -320,7 +319,6 @@ __all__ = [
     "read_excel",
     "read_feather",
     "read_fwf",
-    "read_gbq",
     "read_hdf",
     "read_html",
     "read_json",
@@ -348,6 +346,5 @@ __all__ = [
     "to_timedelta",
     "tseries",
     "unique",
-    "value_counts",
     "wide_to_long",
 ]

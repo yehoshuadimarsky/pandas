@@ -3,10 +3,10 @@ from datetime import (
     timedelta,
 )
 import operator
+import zoneinfo
 
 import numpy as np
 import pytest
-import pytz
 
 from pandas._libs.tslibs import iNaT
 from pandas.compat.numpy import np_version_gte1p24p3
@@ -31,6 +31,17 @@ from pandas.core.arrays import (
     PeriodArray,
     TimedeltaArray,
 )
+
+
+class TestNaTFormatting:
+    def test_repr(self):
+        assert repr(NaT) == "NaT"
+
+    def test_str(self):
+        assert str(NaT) == "NaT"
+
+    def test_isoformat(self):
+        assert NaT.isoformat() == "NaT"
 
 
 @pytest.mark.parametrize(
@@ -135,7 +146,6 @@ def test_round_nat(klass, method, freq):
         "utcnow",
         "utcoffset",
         "utctimetuple",
-        "timestamp",
     ],
 )
 def test_nat_methods_raise(method):
@@ -311,14 +321,15 @@ def test_nat_doc_strings(compare):
     klass, method = compare
     klass_doc = getattr(klass, method).__doc__
 
-    # Ignore differences with Timestamp.isoformat() as they're intentional
     if klass == Timestamp and method == "isoformat":
-        return
+        pytest.skip(
+            "Ignore differences with Timestamp.isoformat() as they're intentional"
+        )
 
     if method == "to_numpy":
         # GH#44460 can return either dt64 or td64 depending on dtype,
         #  different docstring is intentional
-        return
+        pytest.skip(f"different docstring for {method} is intentional")
 
     nat_doc = getattr(NaT, method).__doc__
     assert klass_doc == nat_doc
@@ -350,7 +361,7 @@ _ops = {
         (Timestamp("2014-01-01"), "timestamp"),
         (Timestamp("2014-01-01", tz="UTC"), "timestamp"),
         (Timestamp("2014-01-01", tz="US/Eastern"), "timestamp"),
-        (pytz.timezone("Asia/Tokyo").localize(datetime(2014, 1, 1)), "timestamp"),
+        (datetime(2014, 1, 1).astimezone(zoneinfo.ZoneInfo("Asia/Tokyo")), "timestamp"),
     ],
 )
 def test_nat_arithmetic_scalar(op_name, value, val_type):
@@ -428,9 +439,11 @@ def test_nat_rfloordiv_timedelta(val, expected):
 @pytest.mark.parametrize(
     "value",
     [
-        DatetimeIndex(["2011-01-01", "2011-01-02"], name="x"),
-        DatetimeIndex(["2011-01-01", "2011-01-02"], tz="US/Eastern", name="x"),
-        DatetimeArray._from_sequence(["2011-01-01", "2011-01-02"]),
+        DatetimeIndex(["2011-01-01", "2011-01-02"], dtype="M8[ns]", name="x"),
+        DatetimeIndex(
+            ["2011-01-01", "2011-01-02"], dtype="M8[ns, US/Eastern]", name="x"
+        ),
+        DatetimeArray._from_sequence(["2011-01-01", "2011-01-02"], dtype="M8[ns]"),
         DatetimeArray._from_sequence(
             ["2011-01-01", "2011-01-02"], dtype=DatetimeTZDtype(tz="US/Pacific")
         ),
@@ -446,6 +459,7 @@ def test_nat_arithmetic_index(op_name, value):
         expected = DatetimeIndex(exp_data, tz=value.tz, name=exp_name)
     else:
         expected = TimedeltaIndex(exp_data, name=exp_name)
+    expected = expected.as_unit(value.unit)
 
     if not isinstance(value, Index):
         expected = expected.array
@@ -528,6 +542,8 @@ def test_to_numpy_alias():
             marks=pytest.mark.xfail(
                 not np_version_gte1p24p3,
                 reason="td64 doesn't return NotImplemented, see numpy#17017",
+                # When this xfail is fixed, test_nat_comparisons_numpy
+                #  can be removed.
             ),
         ),
         Timestamp(0),

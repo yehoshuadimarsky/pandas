@@ -1,8 +1,10 @@
 """
 Module for scope operations
 """
+
 from __future__ import annotations
 
+from collections import ChainMap
 import datetime
 import inspect
 from io import StringIO
@@ -10,10 +12,7 @@ import itertools
 import pprint
 import struct
 import sys
-from typing import (
-    ChainMap,
-    TypeVar,
-)
+from typing import TypeVar
 
 import numpy as np
 
@@ -141,7 +140,7 @@ class Scope:
     temps : dict
     """
 
-    __slots__ = ["level", "scope", "target", "resolvers", "temps"]
+    __slots__ = ["level", "resolvers", "scope", "target", "temps"]
     level: int
     scope: DeepChainMap
     resolvers: DeepChainMap

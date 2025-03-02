@@ -1,7 +1,8 @@
-incdir_numpy = run_command(py,
-  [
-    '-c',
-    '''
+incdir_numpy = run_command(
+    py,
+    [
+        '-c',
+        '''
 import os
 import numpy as np
 try:
@@ -12,9 +13,9 @@ try:
 except Exception:
     incdir = np.get_include()
 print(incdir)
-     '''
-  ],
-  check: true
+     ''',
+    ],
+    check: true,
 ).stdout().strip()
 
 inc_np = include_directories(incdir_numpy)
@@ -26,7 +27,6 @@ subdir('_libs')
 
 subdirs_list = [
     '_config',
-    '_libs',
     '_testing',
     'api',
     'arrays',
@@ -37,20 +37,17 @@ subdirs_list = [
     'plotting',
     'tests',
     'tseries',
-    'util'
+    'util',
 ]
-foreach subdir: subdirs_list
-    install_subdir(subdir, install_dir: py.get_install_dir(pure: false) / 'pandas')
+foreach subdir : subdirs_list
+    install_subdir(subdir, install_dir: py.get_install_dir() / 'pandas')
 endforeach
+
 top_level_py_list = [
     '__init__.py',
     '_typing.py',
     '_version.py',
     'conftest.py',
-    'testing.py'
+    'testing.py',
 ]
-foreach file: top_level_py_list
-    py.install_sources(file,
-                       pure: false,
-                       subdir: 'pandas')
-endforeach
+py.install_sources(top_level_py_list, subdir: 'pandas')

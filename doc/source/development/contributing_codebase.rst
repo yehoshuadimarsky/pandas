@@ -38,8 +38,8 @@ Pre-commit
 ----------
 
 Additionally, :ref:`Continuous Integration <contributing.ci>` will run code formatting checks
-like ``black``, ``ruff``,
-``isort``, and ``cpplint`` and more using `pre-commit hooks <https://pre-commit.com/>`_.
+like ``ruff``,
+``isort``, and ``clang-format`` and more using `pre-commit hooks <https://pre-commit.com/>`_.
 Any warnings from these checks will cause the :ref:`Continuous Integration <contributing.ci>` to fail; therefore,
 it is helpful to run the check yourself before submitting code. This
 can be done by installing ``pre-commit`` (which should already have happened if you followed the instructions
@@ -198,7 +198,7 @@ In some cases you may be tempted to use ``cast`` from the typing module when you
            obj = cast(str, obj)  # Mypy complains without this!
            return obj.upper()
 
-The limitation here is that while a human can reasonably understand that ``is_number`` would catch the ``int`` and ``float`` types mypy cannot make that same inference just yet (see `mypy #5206 <https://github.com/python/mypy/issues/5206>`_. While the above works, the use of ``cast`` is **strongly discouraged**. Where applicable a refactor of the code to appease static analysis is preferable
+The limitation here is that while a human can reasonably understand that ``is_number`` would catch the ``int`` and ``float`` types mypy cannot make that same inference just yet (see `mypy #5206 <https://github.com/python/mypy/issues/5206>`_). While the above works, the use of ``cast`` is **strongly discouraged**. Where applicable a refactor of the code to appease static analysis is preferable
 
 .. code-block:: python
 
@@ -244,7 +244,7 @@ in your python environment.
 
 .. warning::
 
-    * Please be aware that the above commands will use the current python environment. If your python packages are older/newer than those installed by the pandas CI, the above commands might fail. This is often the case when the ``mypy`` or ``numpy`` versions do not match. Please see :ref:`how to setup the python environment <contributing.mamba>` or select a `recently succeeded workflow <https://github.com/pandas-dev/pandas/actions/workflows/code-checks.yml?query=branch%3Amain+is%3Asuccess>`_, select the "Docstring validation, typing, and other manual pre-commit hooks" job, then click on "Set up Conda" and "Environment info" to see which versions the pandas CI installs.
+    * Please be aware that the above commands will use the current python environment. If your python packages are older/newer than those installed by the pandas CI, the above commands might fail. This is often the case when the ``mypy`` or ``numpy`` versions do not match. Please see :ref:`how to setup the python environment <contributing.conda>` or select a `recently succeeded workflow <https://github.com/pandas-dev/pandas/actions/workflows/code-checks.yml?query=branch%3Amain+is%3Asuccess>`_, select the "Docstring validation, typing, and other manual pre-commit hooks" job, then click on "Set up Conda" and "Environment info" to see which versions the pandas CI installs.
 
 .. _contributing.ci:
 
@@ -253,7 +253,7 @@ Testing type hints in code using pandas
 
 .. warning::
 
-    * Pandas is not yet a py.typed library (:pep:`561`)!
+    * pandas is not yet a py.typed library (:pep:`561`)!
       The primary purpose of locally declaring pandas as a py.typed library is to test and
       improve the pandas-builtin type annotations.
 
@@ -298,6 +298,12 @@ So, before actually writing any code, you should write your tests.  Often the te
 taken from the original GitHub issue.  However, it is always worth considering additional
 use cases and writing corresponding tests.
 
+We use `code coverage <https://en.wikipedia.org/wiki/Code_coverage>`_ to help understand
+the amount of code which is covered by a test. We recommend striving to ensure code
+you add or change within Pandas is covered by a test. Please see our
+`code coverage dashboard through Codecov <https://app.codecov.io/github/pandas-dev/pandas>`_
+for more information.
+
 Adding tests is one of the most common requests after code is pushed to pandas.  Therefore,
 it is worth getting in the habit of writing tests ahead of time so this is never an issue.
 
@@ -338,7 +344,7 @@ be located.
    - tests.scalar
    - tests.tseries.offsets
 
-2. Does your test depend only on code in pd._libs?
+2. Does your test depend only on code in ``pd._libs``?
    This test likely belongs in one of:
 
    - tests.libs
@@ -456,6 +462,12 @@ be located.
 
       - tests.io
 
+        .. note::
+
+            This includes ``to_string`` but excludes ``__repr__``, which is
+            tested in ``tests.frame.test_repr`` and ``tests.series.test_repr``.
+            Other classes often have a ``test_formats`` file.
+
    C) Otherwise
       This test likely belongs in one of:
 
@@ -475,7 +487,7 @@ be located.
 
 8) Is your test for one of the pandas-provided ExtensionArrays (``Categorical``,
    ``DatetimeArray``, ``TimedeltaArray``, ``PeriodArray``, ``IntervalArray``,
-   ``PandasArray``, ``FloatArray``, ``BoolArray``, ``StringArray``)?
+   ``NumpyExtensionArray``, ``FloatArray``, ``BoolArray``, ``StringArray``)?
    This test likely belongs in one of:
 
    - tests.arrays
@@ -528,7 +540,7 @@ If a test is known to fail but the manner in which it fails
 is not meant to be captured, use ``pytest.mark.xfail`` It is common to use this method for a test that
 exhibits buggy behavior or a non-implemented feature. If
 the failing test has flaky behavior, use the argument ``strict=False``. This
-will make it so pytest does not fail if the test happens to pass.
+will make it so pytest does not fail if the test happens to pass. Using ``strict=False`` is highly undesirable, please use it only as a last resort.
 
 Prefer the decorator ``@pytest.mark.xfail`` and the argument ``pytest.param``
 over usage within a test so that the test is appropriately marked during the
@@ -540,7 +552,7 @@ xfail during the testing phase. To do so, use the ``request`` fixture:
 
     def test_xfail(request):
         mark = pytest.mark.xfail(raises=TypeError, reason="Indicate why here")
-        request.node.add_marker(mark)
+        request.applymarker(mark)
 
 xfail is not to be used for tests involving failure due to invalid user arguments.
 For these tests, we need to verify the correct exception type and error message
@@ -551,11 +563,12 @@ is being raised, using ``pytest.raises`` instead.
 Testing a warning
 ^^^^^^^^^^^^^^^^^
 
-Use ``tm.assert_produces_warning`` as a context manager to check that a block of code raises a warning.
+Use ``tm.assert_produces_warning`` as a context manager to check that a block of code raises a warning
+and specify the warning message using the ``match`` argument.
 
 .. code-block:: python
 
-    with tm.assert_produces_warning(DeprecationWarning):
+    with tm.assert_produces_warning(DeprecationWarning, match="the warning message"):
         pd.deprecated_function()
 
 If a warning should specifically not happen in a block of code, pass ``False`` into the context manager.
@@ -576,16 +589,6 @@ ignore the error.
     def test_thing(self):
         pass
 
-If you need finer-grained control, you can use Python's
-`warnings module <https://docs.python.org/3/library/warnings.html>`__
-to control whether a warning is ignored or raised at different places within
-a single test.
-
-.. code-block:: python
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", FutureWarning)
-
 Testing an exception
 ^^^^^^^^^^^^^^^^^^^^
 
@@ -600,35 +603,30 @@ with the specific exception subclass (i.e. never use :py:class:`Exception`) and 
 Testing involving files
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-The ``tm.ensure_clean`` context manager creates a temporary file for testing,
-with a generated filename (or your filename if provided), that is automatically
-deleted when the context block is exited.
+The ``temp_file`` pytest fixture creates a temporary file :py:class:`Pathlib` object for testing:
 
 .. code-block:: python
 
-    with tm.ensure_clean('my_file_path') as path:
-        # do something with the path
+    def test_something(temp_file):
+        pd.DataFrame([1]).to_csv(str(temp_file))
+
+Please reference `pytest's documentation <https://docs.pytest.org/en/latest/how-to/tmp_path.html#the-default-base-temporary-directory>`_
+for the file retention policy.
 
 Testing involving network connectivity
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-It is highly discouraged to add a test that connects to the internet due to flakiness of network connections and
-lack of ownership of the server that is being connected to. If network connectivity is absolutely required, use the
-``tm.network`` decorator.
+A unit test should not access a public data set over the internet due to flakiness of network connections and
+lack of ownership of the server that is being connected to. To mock this interaction, use the ``httpserver`` fixture from the
+`pytest-localserver plugin. <https://github.com/pytest-dev/pytest-localserver>`_ with synthetic data.
 
 .. code-block:: python
 
-    @tm.network   # noqa
-    def test_network():
-        result = package.call_to_internet()
-
-If the test requires data from a specific website, specify ``check_before_test=True`` and the site in the decorator.
-
-.. code-block:: python
-
-    @tm.network("https://www.somespecificsite.com", check_before_test=True)
-    def test_network():
-        result = pd.read_html("https://www.somespecificsite.com")
+    @pytest.mark.network
+    @pytest.mark.single_cpu
+    def test_network(httpserver):
+        httpserver.serve_content(content="content")
+        result = pd.read_html(httpserver.url)
 
 Example
 ^^^^^^^
@@ -770,8 +768,7 @@ install pandas) by typing::
     your installation is probably fine and you can start contributing!
 
 Often it is worth running only a subset of tests first around your changes before running the
-entire suite (tip: you can use the [pandas-coverage app](https://pandas-coverage.herokuapp.com/))
-to find out which tests hit the lines of code you've modified, and then run only those).
+entire suite.
 
 The easiest way to do this is with::
 
@@ -867,7 +864,7 @@ performance regressions. pandas is in the process of migrating to
 `asv benchmarks <https://github.com/airspeed-velocity/asv>`__
 to enable easy monitoring of the performance of critical pandas operations.
 These benchmarks are all found in the ``pandas/asv_bench`` directory, and the
-test results can be found `here <https://pandas.pydata.org/speed/pandas/>`__.
+test results can be found `here <https://asv-runner.github.io/asv-collection/pandas>`__.
 
 To use all features of asv, you will need either ``conda`` or
 ``virtualenv``. For more details please check the `asv installation

@@ -33,9 +33,9 @@ import pandas._testing as tm
         (
             # This is a judgement call, but we do _not_ downcast Decimal
             #  objects
-            np.array([decimal.Decimal(0.0)]),
+            np.array([decimal.Decimal("0.0")]),
             "int64",
-            np.array([decimal.Decimal(0.0)]),
+            np.array([decimal.Decimal("0.0")]),
         ),
         (
             # GH#45837
@@ -56,8 +56,8 @@ def test_downcast_booleans():
     ser = Series([True, True, False])
     result = maybe_downcast_to_dtype(ser, np.dtype(np.float64))
 
-    expected = ser
-    tm.assert_series_equal(result, expected)
+    expected = ser.values
+    tm.assert_numpy_array_equal(result, expected)
 
 
 def test_downcast_conversion_no_nan(any_real_numpy_dtype):

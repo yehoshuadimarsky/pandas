@@ -35,7 +35,7 @@ You can construct a ``Timedelta`` scalar through various arguments, including `I
    pd.Timedelta(days=1, seconds=1)
 
    # integers with a unit
-   pd.Timedelta(1, unit="d")
+   pd.Timedelta(1, unit="D")
 
    # from a datetime.timedelta/np.timedelta64
    pd.Timedelta(datetime.timedelta(days=1, seconds=1))
@@ -94,7 +94,7 @@ is numeric:
 .. ipython:: python
 
    pd.to_timedelta(np.arange(5), unit="s")
-   pd.to_timedelta(np.arange(5), unit="d")
+   pd.to_timedelta(np.arange(5), unit="D")
 
 .. warning::
     If a string or array of strings is passed as an input then the ``unit`` keyword
@@ -259,9 +259,6 @@ an alternative is to divide by another timedelta object. Note that division by t
    # to days
    td / np.timedelta64(1, "D")
 
-   # to months (these are constant months)
-   td / np.timedelta64(1, "M")
-
 Dividing or multiplying a ``timedelta64[ns]`` Series by an integer or integer Series
 yields another ``timedelta64[ns]`` dtypes Series.
 
@@ -393,9 +390,9 @@ The ``freq`` parameter can passed a variety of :ref:`frequency aliases <timeseri
 
 .. ipython:: python
 
-   pd.timedelta_range(start="1 days", end="2 days", freq="30T")
+   pd.timedelta_range(start="1 days", end="2 days", freq="30min")
 
-   pd.timedelta_range(start="1 days", periods=5, freq="2D5H")
+   pd.timedelta_range(start="1 days", periods=5, freq="2D5h")
 
 
 Specifying ``start``, ``end``, and ``periods`` will generate a range of evenly spaced

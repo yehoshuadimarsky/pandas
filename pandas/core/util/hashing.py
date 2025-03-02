@@ -1,15 +1,11 @@
 """
 data hash pandas / numpy objects
 """
+
 from __future__ import annotations
 
 import itertools
-from typing import (
-    TYPE_CHECKING,
-    Hashable,
-    Iterable,
-    Iterator,
-)
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -26,6 +22,12 @@ from pandas.core.dtypes.generic import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import (
+        Hashable,
+        Iterable,
+        Iterator,
+    )
+
     from pandas._typing import (
         ArrayLike,
         npt,
@@ -104,7 +106,16 @@ def hash_pandas_object(
 
     Returns
     -------
-    Series of uint64, same length as the object
+    Series of uint64
+        Same length as the object.
+
+    Examples
+    --------
+    >>> pd.util.hash_pandas_object(pd.Series([1, 2, 3]))
+    0    14639053686158035780
+    1     3869563279212530728
+    2      393322362522515241
+    dtype: uint64
     """
     from pandas import Series
 
@@ -233,6 +244,7 @@ def hash_array(
     Parameters
     ----------
     vals : ndarray or ExtensionArray
+        The input array to hash.
     encoding : str, default 'utf8'
         Encoding for data & key when strings.
     hash_key : str, default _default_hash_key
@@ -245,6 +257,17 @@ def hash_array(
     -------
     ndarray[np.uint64, ndim=1]
         Hashed values, same length as the vals.
+
+    See Also
+    --------
+    util.hash_pandas_object : Return a data hash of the Index/Series/DataFrame.
+    util.hash_tuples : Hash an MultiIndex / listlike-of-tuples efficiently.
+
+    Examples
+    --------
+    >>> pd.util.hash_array(np.array([1, 2, 3]))
+    array([ 6238072747940578789, 15839785061582574730,  2185194620014831856],
+      dtype=uint64)
     """
     if not hasattr(vals, "dtype"):
         raise TypeError("must pass a ndarray-like")

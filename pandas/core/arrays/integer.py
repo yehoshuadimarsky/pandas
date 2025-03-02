@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 import numpy as np
 
 from pandas.core.dtypes.base import register_extension_dtype
@@ -21,6 +23,8 @@ class IntegerDtype(NumericDtype):
     The attributes name & type are set when these subclasses are created.
     """
 
+    # The value used to fill '_data' to avoid upcasting
+    _internal_fill_value = 1
     _default_np_dtype = np.dtype(np.int64)
     _checker = is_integer_dtype
 
@@ -101,6 +105,12 @@ class IntegerArray(NumericArray):
     -------
     IntegerArray
 
+    See Also
+    --------
+    array : Create an array using the appropriate dtype, including ``IntegerArray``.
+    Int32Dtype : An ExtensionDtype for int32 integer data.
+    UInt16Dtype : An ExtensionDtype for uint16 integer data.
+
     Examples
     --------
     Create an IntegerArray with :func:`pandas.array`.
@@ -113,26 +123,18 @@ class IntegerArray(NumericArray):
 
     String aliases for the dtypes are also available. They are capitalized.
 
-    >>> pd.array([1, None, 3], dtype='Int32')
+    >>> pd.array([1, None, 3], dtype="Int32")
     <IntegerArray>
     [1, <NA>, 3]
     Length: 3, dtype: Int32
 
-    >>> pd.array([1, None, 3], dtype='UInt16')
+    >>> pd.array([1, None, 3], dtype="UInt16")
     <IntegerArray>
     [1, <NA>, 3]
     Length: 3, dtype: UInt16
     """
 
     _dtype_cls = IntegerDtype
-
-    # The value used to fill '_data' to avoid upcasting
-    _internal_fill_value = 1
-    # Fill values used for any/all
-    # Incompatible types in assignment (expression has type "int", base class
-    # "BaseMaskedArray" defined the type as "<typing special form>")
-    _truthy_value = 1  # type: ignore[assignment]
-    _falsey_value = 0  # type: ignore[assignment]
 
 
 _dtype_docstring = """
@@ -147,6 +149,13 @@ None
 Methods
 -------
 None
+
+See Also
+--------
+Int8Dtype : 8-bit nullable integer type.
+Int16Dtype : 16-bit nullable integer type.
+Int32Dtype : 32-bit nullable integer type.
+Int64Dtype : 64-bit nullable integer type.
 
 Examples
 --------
@@ -205,56 +214,56 @@ UInt64Dtype()
 @register_extension_dtype
 class Int8Dtype(IntegerDtype):
     type = np.int8
-    name = "Int8"
+    name: ClassVar[str] = "Int8"
     __doc__ = _dtype_docstring.format(dtype="int8")
 
 
 @register_extension_dtype
 class Int16Dtype(IntegerDtype):
     type = np.int16
-    name = "Int16"
+    name: ClassVar[str] = "Int16"
     __doc__ = _dtype_docstring.format(dtype="int16")
 
 
 @register_extension_dtype
 class Int32Dtype(IntegerDtype):
     type = np.int32
-    name = "Int32"
+    name: ClassVar[str] = "Int32"
     __doc__ = _dtype_docstring.format(dtype="int32")
 
 
 @register_extension_dtype
 class Int64Dtype(IntegerDtype):
     type = np.int64
-    name = "Int64"
+    name: ClassVar[str] = "Int64"
     __doc__ = _dtype_docstring.format(dtype="int64")
 
 
 @register_extension_dtype
 class UInt8Dtype(IntegerDtype):
     type = np.uint8
-    name = "UInt8"
+    name: ClassVar[str] = "UInt8"
     __doc__ = _dtype_docstring.format(dtype="uint8")
 
 
 @register_extension_dtype
 class UInt16Dtype(IntegerDtype):
     type = np.uint16
-    name = "UInt16"
+    name: ClassVar[str] = "UInt16"
     __doc__ = _dtype_docstring.format(dtype="uint16")
 
 
 @register_extension_dtype
 class UInt32Dtype(IntegerDtype):
     type = np.uint32
-    name = "UInt32"
+    name: ClassVar[str] = "UInt32"
     __doc__ = _dtype_docstring.format(dtype="uint32")
 
 
 @register_extension_dtype
 class UInt64Dtype(IntegerDtype):
     type = np.uint64
-    name = "UInt64"
+    name: ClassVar[str] = "UInt64"
     __doc__ = _dtype_docstring.format(dtype="uint64")
 
 

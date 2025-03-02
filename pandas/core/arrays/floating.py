@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 import numpy as np
 
 from pandas.core.dtypes.base import register_extension_dtype
@@ -21,6 +23,8 @@ class FloatingDtype(NumericDtype):
     The attributes name & type are set when these subclasses are created.
     """
 
+    # The value used to fill '_data' to avoid upcasting
+    _internal_fill_value = np.nan
     _default_np_dtype = np.dtype(np.float64)
     _checker = is_float_dtype
 
@@ -54,8 +58,6 @@ class FloatingDtype(NumericDtype):
 class FloatingArray(NumericArray):
     """
     Array of floating (optional missing) values.
-
-    .. versionadded:: 1.2.0
 
     .. warning::
 
@@ -94,6 +96,14 @@ class FloatingArray(NumericArray):
     -------
     FloatingArray
 
+    See Also
+    --------
+    array : Create an array.
+    Float32Dtype : Float32 dtype for FloatingArray.
+    Float64Dtype : Float64 dtype for FloatingArray.
+    Series : One-dimensional labeled array capable of holding data.
+    DataFrame : Two-dimensional, size-mutable, potentially heterogeneous tabular data.
+
     Examples
     --------
     Create an FloatingArray with :func:`pandas.array`:
@@ -113,14 +123,6 @@ class FloatingArray(NumericArray):
 
     _dtype_cls = FloatingDtype
 
-    # The value used to fill '_data' to avoid upcasting
-    _internal_fill_value = np.nan
-    # Fill values used for any/all
-    # Incompatible types in assignment (expression has type "float", base class
-    # "BaseMaskedArray" defined the type as "<typing special form>")
-    _truthy_value = 1.0  # type: ignore[assignment]
-    _falsey_value = 0.0  # type: ignore[assignment]
-
 
 _dtype_docstring = """
 An ExtensionDtype for {dtype} data.
@@ -134,6 +136,12 @@ None
 Methods
 -------
 None
+
+See Also
+--------
+CategoricalDtype : Type for categorical data with the categories and orderedness.
+IntegerDtype : An ExtensionDtype to hold a single size & kind of integer dtype.
+StringDtype : An ExtensionDtype for string data.
 
 Examples
 --------
@@ -156,14 +164,14 @@ Float64Dtype()
 @register_extension_dtype
 class Float32Dtype(FloatingDtype):
     type = np.float32
-    name = "Float32"
+    name: ClassVar[str] = "Float32"
     __doc__ = _dtype_docstring.format(dtype="float32")
 
 
 @register_extension_dtype
 class Float64Dtype(FloatingDtype):
     type = np.float64
-    name = "Float64"
+    name: ClassVar[str] = "Float64"
     __doc__ = _dtype_docstring.format(dtype="float64")
 
 

@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import ctypes
 import re
-from typing import Any
+from typing import (
+    Any,
+    overload,
+)
 
 import numpy as np
+
+from pandas._config import using_string_dtype
 
 from pandas.compat._optional import import_optional_dependency
 
@@ -33,6 +38,21 @@ def from_dataframe(df, allow_copy: bool = True) -> pd.DataFrame:
     """
     Build a ``pd.DataFrame`` from any DataFrame supporting the interchange protocol.
 
+    .. note::
+
+       For new development, we highly recommend using the Arrow C Data Interface
+       alongside the Arrow PyCapsule Interface instead of the interchange protocol.
+       From pandas 3.0 onwards, `from_dataframe` uses the PyCapsule Interface,
+       only falling back to the interchange protocol if that fails.
+
+    .. warning::
+
+        Due to severe implementation issues, we recommend only considering using the
+        interchange protocol in the following cases:
+
+        - converting to pandas: for pandas >= 2.0.3
+        - converting from pandas: for pandas >= 3.0.0
+
     Parameters
     ----------
     df : DataFrameXchg
@@ -44,17 +64,55 @@ def from_dataframe(df, allow_copy: bool = True) -> pd.DataFrame:
     Returns
     -------
     pd.DataFrame
+        A pandas DataFrame built from the provided interchange
+        protocol object.
+
+    See Also
+    --------
+    pd.DataFrame : DataFrame class which can be created from various input data
+        formats, including objects that support the interchange protocol.
+
+    Examples
+    --------
+    >>> df_not_necessarily_pandas = pd.DataFrame({"A": [1, 2], "B": [3, 4]})
+    >>> interchange_object = df_not_necessarily_pandas.__dataframe__()
+    >>> interchange_object.column_names()
+    Index(['A', 'B'], dtype='object')
+    >>> df_pandas = pd.api.interchange.from_dataframe(
+    ...     interchange_object.select_columns_by_name(["A"])
+    ... )
+    >>> df_pandas
+         A
+    0    1
+    1    2
+
+    These methods (``column_names``, ``select_columns_by_name``) should work
+    for any dataframe library which implements the interchange protocol.
     """
     if isinstance(df, pd.DataFrame):
         return df
 
+    if hasattr(df, "__arrow_c_stream__"):
+        try:
+            pa = import_optional_dependency("pyarrow", min_version="14.0.0")
+        except ImportError:
+            # fallback to _from_dataframe
+            pass
+        else:
+            try:
+                return pa.table(df).to_pandas(zero_copy_only=not allow_copy)
+            except pa.ArrowInvalid as e:
+                raise RuntimeError(e) from e
+
     if not hasattr(df, "__dataframe__"):
         raise ValueError("`df` does not support __dataframe__")
 
-    return _from_dataframe(df.__dataframe__(allow_copy=allow_copy))
+    return _from_dataframe(
+        df.__dataframe__(allow_copy=allow_copy), allow_copy=allow_copy
+    )
 
 
-def _from_dataframe(df: DataFrameXchg, allow_copy: bool = True):
+def _from_dataframe(df: DataFrameXchg, allow_copy: bool = True) -> pd.DataFrame:
     """
     Build a ``pd.DataFrame`` from the DataFrame interchange object.
 
@@ -105,8 +163,6 @@ def protocol_df_chunk_to_pandas(df: DataFrameXchg) -> pd.DataFrame:
     -------
     pd.DataFrame
     """
-    # We need a dict of columns here, with each column being a NumPy array (at
-    # least for now, deal with non-NumPy dtypes later).
     columns: dict[str, Any] = {}
     buffers = []  # hold on to buffers, keeps memory alive
     for name in df.column_names():
@@ -247,10 +303,9 @@ def string_column_to_ndarray(col: Column) -> tuple[np.ndarray, Any]:
 
     assert buffers["offsets"], "String buffers must contain offsets"
     # Retrieve the data buffer containing the UTF-8 code units
-    data_buff, protocol_data_dtype = buffers["data"]
+    data_buff, _ = buffers["data"]
     # We're going to reinterpret the buffer as uint8, so make sure we can do it safely
-    assert protocol_data_dtype[1] == 8
-    assert protocol_data_dtype[2] in (
+    assert col.dtype[2] in (
         ArrowCTypes.STRING,
         ArrowCTypes.LARGE_STRING,
     )  # format_str == utf-8
@@ -277,13 +332,14 @@ def string_column_to_ndarray(col: Column) -> tuple[np.ndarray, Any]:
 
     null_pos = None
     if null_kind in (ColumnNullType.USE_BITMASK, ColumnNullType.USE_BYTEMASK):
-        assert buffers["validity"], "Validity buffers cannot be empty for masks"
-        valid_buff, valid_dtype = buffers["validity"]
-        null_pos = buffer_to_ndarray(
-            valid_buff, valid_dtype, offset=col.offset, length=col.size()
-        )
-        if sentinel_val == 0:
-            null_pos = ~null_pos
+        validity = buffers["validity"]
+        if validity is not None:
+            valid_buff, valid_dtype = validity
+            null_pos = buffer_to_ndarray(
+                valid_buff, valid_dtype, offset=col.offset, length=col.size()
+            )
+            if sentinel_val == 0:
+                null_pos = ~null_pos
 
     # Assemble the strings from the code units
     str_list: list[None | float | str] = [None] * col.size()
@@ -305,24 +361,28 @@ def string_column_to_ndarray(col: Column) -> tuple[np.ndarray, Any]:
         # Add to our list of strings
         str_list[i] = string
 
-    # Convert the string list to a NumPy array
-    return np.asarray(str_list, dtype="object"), buffers
+    if using_string_dtype():
+        res = pd.Series(str_list, dtype="str")
+    else:
+        res = np.asarray(str_list, dtype="object")  # type: ignore[assignment]
+
+    return res, buffers  # type: ignore[return-value]
 
 
-def parse_datetime_format_str(format_str, data):
+def parse_datetime_format_str(format_str, data) -> pd.Series | np.ndarray:
     """Parse datetime `format_str` to interpret the `data`."""
     # timestamp 'ts{unit}:tz'
     timestamp_meta = re.match(r"ts([smun]):(.*)", format_str)
     if timestamp_meta:
         unit, tz = timestamp_meta.group(1), timestamp_meta.group(2)
-        if tz != "":
-            raise NotImplementedError("Timezones are not supported yet")
         if unit != "s":
             # the format string describes only a first letter of the unit, so
             # add one extra letter to convert the unit to numpy-style:
             # 'm' -> 'ms', 'u' -> 'us', 'n' -> 'ns'
             unit += "s"
         data = data.astype(f"datetime64[{unit}]")
+        if tz != "":
+            data = pd.Series(data).dt.tz_localize("UTC").dt.tz_convert(tz)
         return data
 
     # date 'td{Days/Ms}'
@@ -342,7 +402,7 @@ def parse_datetime_format_str(format_str, data):
     raise NotImplementedError(f"DateTime kind is not supported: {format_str}")
 
 
-def datetime_column_to_ndarray(col: Column) -> tuple[np.ndarray, Any]:
+def datetime_column_to_ndarray(col: Column) -> tuple[np.ndarray | pd.Series, Any]:
     """
     Convert a column holding DateTime data to a NumPy array.
 
@@ -358,22 +418,23 @@ def datetime_column_to_ndarray(col: Column) -> tuple[np.ndarray, Any]:
     """
     buffers = col.get_buffers()
 
-    _, _, format_str, _ = col.dtype
-    dbuf, dtype = buffers["data"]
+    _, col_bit_width, format_str, _ = col.dtype
+    dbuf, _ = buffers["data"]
     # Consider dtype being `uint` to get number of units passed since the 01.01.1970
+
     data = buffer_to_ndarray(
         dbuf,
         (
-            DtypeKind.UINT,
-            dtype[1],
-            getattr(ArrowCTypes, f"UINT{dtype[1]}"),
+            DtypeKind.INT,
+            col_bit_width,
+            getattr(ArrowCTypes, f"INT{col_bit_width}"),
             Endianness.NATIVE,
         ),
         offset=col.offset,
         length=col.size(),
     )
 
-    data = parse_datetime_format_str(format_str, data)
+    data = parse_datetime_format_str(format_str, data)  # type: ignore[assignment]
     data = set_nulls(data, col, buffers["validity"])
     return data, buffers
 
@@ -435,10 +496,36 @@ def buffer_to_ndarray(
         data_pointer = ctypes.cast(
             buffer.ptr + (offset * bit_width // 8), ctypes.POINTER(ctypes_type)
         )
-        return np.ctypeslib.as_array(
-            data_pointer,
-            shape=(length,),
-        )
+        if length > 0:
+            return np.ctypeslib.as_array(data_pointer, shape=(length,))
+        return np.array([], dtype=ctypes_type)
+
+
+@overload
+def set_nulls(
+    data: np.ndarray,
+    col: Column,
+    validity: tuple[Buffer, tuple[DtypeKind, int, str, str]] | None,
+    allow_modify_inplace: bool = ...,
+) -> np.ndarray: ...
+
+
+@overload
+def set_nulls(
+    data: pd.Series,
+    col: Column,
+    validity: tuple[Buffer, tuple[DtypeKind, int, str, str]] | None,
+    allow_modify_inplace: bool = ...,
+) -> pd.Series: ...
+
+
+@overload
+def set_nulls(
+    data: np.ndarray | pd.Series,
+    col: Column,
+    validity: tuple[Buffer, tuple[DtypeKind, int, str, str]] | None,
+    allow_modify_inplace: bool = ...,
+) -> np.ndarray | pd.Series: ...
 
 
 def set_nulls(
@@ -446,7 +533,7 @@ def set_nulls(
     col: Column,
     validity: tuple[Buffer, tuple[DtypeKind, int, str, str]] | None,
     allow_modify_inplace: bool = True,
-):
+) -> np.ndarray | pd.Series:
     """
     Set null values for the data according to the column null kind.
 
@@ -468,6 +555,8 @@ def set_nulls(
     np.ndarray or pd.Series
         Data with the nulls being set.
     """
+    if validity is None:
+        return data
     null_kind, sentinel_val = col.describe_null
     null_pos = None
 

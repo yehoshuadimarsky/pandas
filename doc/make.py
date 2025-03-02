@@ -11,6 +11,7 @@ Usage
     $ python make.py html
     $ python make.py latex
 """
+
 import argparse
 import csv
 import importlib
@@ -45,12 +46,14 @@ class DocBuilder:
         single_doc=None,
         verbosity=0,
         warnings_are_errors=False,
+        no_browser=False,
     ) -> None:
         self.num_jobs = num_jobs
         self.include_api = include_api
         self.whatsnew = whatsnew
         self.verbosity = verbosity
         self.warnings_are_errors = warnings_are_errors
+        self.no_browser = no_browser
 
         if single_doc:
             single_doc = self._process_single_doc(single_doc)
@@ -100,7 +103,7 @@ class DocBuilder:
             )
 
     @staticmethod
-    def _run_os(*args):
+    def _run_os(*args) -> None:
         """
         Execute a command as a OS terminal.
 
@@ -111,7 +114,7 @@ class DocBuilder:
 
         Examples
         --------
-        >>> DocBuilder()._run_os('python', '--version')
+        >>> DocBuilder()._run_os("python", "--version")
         """
         subprocess.check_call(args, stdout=sys.stdout, stderr=sys.stderr)
 
@@ -123,14 +126,14 @@ class DocBuilder:
 
         Parameters
         ----------
-        kind : {'html', 'latex'}
+        kind : {'html', 'latex', 'linkcheck'}
 
         Examples
         --------
-        >>> DocBuilder(num_jobs=4)._sphinx_build('html')
+        >>> DocBuilder(num_jobs=4)._sphinx_build("html")
         """
-        if kind not in ("html", "latex"):
-            raise ValueError(f"kind must be html or latex, not {kind}")
+        if kind not in ("html", "latex", "linkcheck"):
+            raise ValueError(f"kind must be html, latex or linkcheck, not {kind}")
 
         cmd = ["sphinx-build", "-b", kind]
         if self.num_jobs:
@@ -147,7 +150,7 @@ class DocBuilder:
         ]
         return subprocess.call(cmd)
 
-    def _open_browser(self, single_doc_html):
+    def _open_browser(self, single_doc_html) -> None:
         """
         Open a browser tab showing single
         """
@@ -159,10 +162,10 @@ class DocBuilder:
         Open the rst file `page` and extract its title.
         """
         fname = os.path.join(SOURCE_PATH, f"{page}.rst")
-        option_parser = docutils.frontend.OptionParser(
-            components=(docutils.parsers.rst.Parser,)
+        doc = docutils.utils.new_document(
+            "<doc>",
+            docutils.frontend.get_default_settings(docutils.parsers.rst.Parser),
         )
-        doc = docutils.utils.new_document("<doc>", option_parser.get_default_values())
         with open(fname, encoding="utf-8") as f:
             data = f.read()
 
@@ -181,7 +184,7 @@ class DocBuilder:
 
         return title.astext()
 
-    def _add_redirects(self):
+    def _add_redirects(self) -> None:
         """
         Create in the build directory an html file with a redirect,
         for every row in REDIRECTS_FILE.
@@ -231,14 +234,15 @@ class DocBuilder:
         ret_code = self._sphinx_build("html")
         zip_fname = os.path.join(BUILD_PATH, "html", "pandas.zip")
         if os.path.exists(zip_fname):
-            os.remove(zip_fname)
+            os.remove(zip_fname)  # noqa: TID251
 
         if ret_code == 0:
             if self.single_doc_html is not None:
-                self._open_browser(self.single_doc_html)
+                if not self.no_browser:
+                    self._open_browser(self.single_doc_html)
             else:
                 self._add_redirects()
-                if self.whatsnew:
+                if self.whatsnew and not self.no_browser:
                     self._open_browser(os.path.join("whatsnew", "index.html"))
 
         return ret_code
@@ -256,8 +260,7 @@ class DocBuilder:
                 for i in range(3):
                     self._run_os("pdflatex", "-interaction=nonstopmode", "pandas.tex")
                 raise SystemExit(
-                    "You should check the file "
-                    '"build/latex/pandas.pdf" for problems.'
+                    'You should check the file "build/latex/pandas.pdf" for problems.'
                 )
             self._run_os("make")
             return ret_code
@@ -269,24 +272,30 @@ class DocBuilder:
         return self.latex(force=True)
 
     @staticmethod
-    def clean():
+    def clean() -> None:
         """
         Clean documentation generated files.
         """
         shutil.rmtree(BUILD_PATH, ignore_errors=True)
         shutil.rmtree(os.path.join(SOURCE_PATH, "reference", "api"), ignore_errors=True)
 
-    def zip_html(self):
+    def zip_html(self) -> None:
         """
         Compress HTML documentation into a zip file.
         """
         zip_fname = os.path.join(BUILD_PATH, "html", "pandas.zip")
         if os.path.exists(zip_fname):
-            os.remove(zip_fname)
+            os.remove(zip_fname)  # noqa: TID251
         dirname = os.path.join(BUILD_PATH, "html")
         fnames = os.listdir(dirname)
         os.chdir(dirname)
         self._run_os("zip", zip_fname, "-r", "-q", *fnames)
+
+    def linkcheck(self):
+        """
+        Check for broken links in the documentation.
+        """
+        return self._sphinx_build("linkcheck")
 
 
 def main():
@@ -333,8 +342,7 @@ def main():
         dest="verbosity",
         default=0,
         help=(
-            "increase verbosity (can be repeated), "
-            "passed to the sphinx build command"
+            "increase verbosity (can be repeated), passed to the sphinx build command"
         ),
     )
     argparser.add_argument(
@@ -342,6 +350,12 @@ def main():
         "-W",
         action="store_true",
         help="fail if warnings are raised",
+    )
+    argparser.add_argument(
+        "--no-browser",
+        help="Don't open browser",
+        default=False,
+        action="store_true",
     )
     args = argparser.parse_args()
 
@@ -368,6 +382,7 @@ def main():
         args.single,
         args.verbosity,
         args.warnings_are_errors,
+        args.no_browser,
     )
     return getattr(builder, args.command)()
 

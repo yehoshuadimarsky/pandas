@@ -1,60 +1,57 @@
-from pandas.core.internals.api import make_block
-from pandas.core.internals.array_manager import (
-    ArrayManager,
-    SingleArrayManager,
-)
-from pandas.core.internals.base import (
-    DataManager,
-    SingleDataManager,
-)
-from pandas.core.internals.blocks import (  # io.pytables, io.packers
-    Block,
-    DatetimeTZBlock,
-    ExtensionBlock,
-)
+from pandas.core.internals.api import make_block  # 2023-09-18 pyarrow uses this
 from pandas.core.internals.concat import concatenate_managers
 from pandas.core.internals.managers import (
     BlockManager,
     SingleBlockManager,
-    create_block_manager_from_blocks,
 )
 
 __all__ = [
     "Block",
-    "DatetimeTZBlock",
-    "ExtensionBlock",
-    "make_block",
-    "DataManager",
-    "ArrayManager",
     "BlockManager",
-    "SingleDataManager",
+    "ExtensionBlock",
     "SingleBlockManager",
-    "SingleArrayManager",
     "concatenate_managers",
-    # this is preserved here for downstream compatibility (GH-33892)
-    "create_block_manager_from_blocks",
+    "make_block",
 ]
 
 
 def __getattr__(name: str):
+    # GH#55139
     import warnings
 
-    from pandas.util._exceptions import find_stack_level
-
-    if name in ["NumericBlock", "ObjectBlock"]:
+    if name == "create_block_manager_from_blocks":
+        # GH#33892
         warnings.warn(
             f"{name} is deprecated and will be removed in a future version. "
             "Use public APIs instead.",
-            DeprecationWarning,
-            stacklevel=find_stack_level(),
+            FutureWarning,
+            # https://github.com/pandas-dev/pandas/pull/55139#pullrequestreview-1720690758
+            # on hard-coding stacklevel
+            stacklevel=2,
         )
-        if name == "NumericBlock":
-            from pandas.core.internals.blocks import NumericBlock
+        from pandas.core.internals.managers import create_block_manager_from_blocks
 
-            return NumericBlock
+        return create_block_manager_from_blocks
+
+    if name in [
+        "Block",
+        "ExtensionBlock",
+    ]:
+        warnings.warn(
+            f"{name} is deprecated and will be removed in a future version. "
+            "Use public APIs instead.",
+            FutureWarning,
+            # https://github.com/pandas-dev/pandas/pull/55139#pullrequestreview-1720690758
+            # on hard-coding stacklevel
+            stacklevel=2,
+        )
+        if name == "ExtensionBlock":
+            from pandas.core.internals.blocks import ExtensionBlock
+
+            return ExtensionBlock
         else:
-            from pandas.core.internals.blocks import ObjectBlock
+            from pandas.core.internals.blocks import Block
 
-            return ObjectBlock
+            return Block
 
     raise AttributeError(f"module 'pandas.core.internals' has no attribute '{name}'")

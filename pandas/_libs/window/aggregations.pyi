@@ -60,6 +60,18 @@ def roll_min(
     end: np.ndarray,  # np.ndarray[np.int64]
     minp: int,  # int64_t
 ) -> np.ndarray: ...  # np.ndarray[float]
+def roll_first(
+    values: np.ndarray,  # np.ndarray[np.float64]
+    start: np.ndarray,  # np.ndarray[np.int64]
+    end: np.ndarray,  # np.ndarray[np.int64]
+    minp: int,  # int64_t
+) -> np.ndarray: ...  # np.ndarray[float]
+def roll_last(
+    values: np.ndarray,  # np.ndarray[np.float64]
+    start: np.ndarray,  # np.ndarray[np.int64]
+    end: np.ndarray,  # np.ndarray[np.int64]
+    minp: int,  # int64_t
+) -> np.ndarray: ...  # np.ndarray[float]
 def roll_quantile(
     values: np.ndarray,  # const float64_t[:]
     start: np.ndarray,  # np.ndarray[np.int64]
@@ -111,8 +123,8 @@ def ewm(
     com: float,  # float64_t
     adjust: bool,
     ignore_na: bool,
-    deltas: np.ndarray,  # const float64_t[:]
-    normalize: bool,
+    deltas: np.ndarray | None = None,  # const float64_t[:]
+    normalize: bool = True,
 ) -> np.ndarray: ...  # np.ndarray[np.float64]
 def ewmcov(
     input_x: np.ndarray,  # const float64_t[:]

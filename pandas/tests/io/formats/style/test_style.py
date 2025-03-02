@@ -77,6 +77,8 @@ def mi_styler_comp(mi_styler):
             columns=mi_styler.columns,
         )
     )
+    mi_styler.format_index_names(escape="html", axis=0)
+    mi_styler.format_index_names(escape="html", axis=1)
     return mi_styler
 
 
@@ -87,15 +89,13 @@ def blank_value():
 
 @pytest.fixture
 def df():
-    np.random.seed(24)
-    df = DataFrame({"A": [0, 1], "B": np.random.randn(2)})
+    df = DataFrame({"A": [0, 1], "B": np.random.default_rng(2).standard_normal(2)})
     return df
 
 
 @pytest.fixture
 def styler(df):
-    np.random.seed(24)
-    df = DataFrame({"A": [0, 1], "B": np.random.randn(2)})
+    df = DataFrame({"A": [0, 1], "B": np.random.default_rng(2).standard_normal(2)})
     return Styler(df)
 
 
@@ -488,9 +488,11 @@ class TestStyler:
     def test_repr_html_mathjax(self, styler):
         # gh-19824 / 41395
         assert "tex2jax_ignore" not in styler._repr_html_()
+        assert "mathjax_ignore" not in styler._repr_html_()
 
         with option_context("styler.html.mathjax", False):
             assert "tex2jax_ignore" in styler._repr_html_()
+            assert "mathjax_ignore" in styler._repr_html_()
 
     def test_update_ctx(self, styler):
         styler._update_ctx(DataFrame({"A": ["color: red", "color: blue"]}))
@@ -733,7 +735,7 @@ class TestStyler:
 
         idx = MultiIndex.from_product([["a", "b"], [1, 2]])
         col = MultiIndex.from_product([["x", "y"], ["A", "B"]])
-        df = DataFrame(np.random.rand(4, 4), columns=col, index=idx)
+        df = DataFrame(np.random.default_rng(2).random((4, 4)), columns=col, index=idx)
 
         with ctx:
             df.style.map(lambda x: "color: red;", subset=slice_).to_html()
@@ -886,8 +888,19 @@ class TestStyler:
         expected = []
         assert maybe_convert_css_to_tuples("") == expected
 
+        # issue #59623
+        expected = [("a", "b"), ("c", "url('data:123')")]
+        assert maybe_convert_css_to_tuples("a:b;c: url('data:123');") == expected
+
+        # if no value, return attr and empty string
+        expected = [("a", ""), ("c", "")]
+        assert maybe_convert_css_to_tuples("a:;c: ") == expected
+
     def test_maybe_convert_css_to_tuples_err(self):
-        msg = "Styles supplied as string must follow CSS rule formats"
+        msg = (
+            "Styles supplied as string must follow CSS rule formats, "
+            "for example 'attr: val;'. 'err' was given."
+        )
         with pytest.raises(ValueError, match=msg):
             maybe_convert_css_to_tuples("err")
 
@@ -920,7 +933,7 @@ class TestStyler:
 
     def test_export(self, df, styler):
         f = lambda x: "color: red" if x > 0 else "color: blue"
-        g = lambda x, z: f"color: {z}" if x > 0 else f"color: {z}"
+        g = lambda x, z: f"color: {z}"
         style1 = styler
         style1.map(f).map(g, z="b").highlight_max()._compute()  # = render
         result = style1.export()

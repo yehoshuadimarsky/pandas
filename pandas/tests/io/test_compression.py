@@ -9,6 +9,7 @@ import textwrap
 import time
 import zipfile
 
+import numpy as np
 import pytest
 
 from pandas.compat import is_platform_windows
@@ -132,7 +133,7 @@ def test_compression_warning(compression_only):
     )
     with tm.ensure_clean() as path:
         with icom.get_handle(path, "w", compression=compression_only) as handles:
-            with tm.assert_produces_warning(RuntimeWarning):
+            with tm.assert_produces_warning(RuntimeWarning, match="has no effect"):
                 df.to_csv(handles.handle, compression=compression_only)
 
 
@@ -142,7 +143,11 @@ def test_compression_binary(compression_only):
 
     GH22555
     """
-    df = tm.makeDataFrame()
+    df = pd.DataFrame(
+        1.1 * np.arange(120).reshape((30, 4)),
+        columns=pd.Index(list("ABCD")),
+        index=pd.Index([f"i-{i}" for i in range(30)]),
+    )
 
     # with a file
     with tm.ensure_clean() as path:
@@ -170,14 +175,18 @@ def test_gzip_reproducibility_file_name():
 
     GH 28103
     """
-    df = tm.makeDataFrame()
+    df = pd.DataFrame(
+        1.1 * np.arange(120).reshape((30, 4)),
+        columns=pd.Index(list("ABCD")),
+        index=pd.Index([f"i-{i}" for i in range(30)]),
+    )
     compression_options = {"method": "gzip", "mtime": 1}
 
     # test for filename
     with tm.ensure_clean() as path:
         path = Path(path)
         df.to_csv(path, compression=compression_options)
-        time.sleep(2)
+        time.sleep(0.1)
         output = path.read_bytes()
         df.to_csv(path, compression=compression_options)
         assert output == path.read_bytes()
@@ -189,19 +198,24 @@ def test_gzip_reproducibility_file_object():
 
     GH 28103
     """
-    df = tm.makeDataFrame()
+    df = pd.DataFrame(
+        1.1 * np.arange(120).reshape((30, 4)),
+        columns=pd.Index(list("ABCD")),
+        index=pd.Index([f"i-{i}" for i in range(30)]),
+    )
     compression_options = {"method": "gzip", "mtime": 1}
 
     # test for file object
     buffer = io.BytesIO()
     df.to_csv(buffer, compression=compression_options, mode="wb")
     output = buffer.getvalue()
-    time.sleep(2)
+    time.sleep(0.1)
     buffer = io.BytesIO()
     df.to_csv(buffer, compression=compression_options, mode="wb")
     assert output == buffer.getvalue()
 
 
+@pytest.mark.single_cpu
 def test_with_missing_lzma():
     """Tests if import pandas works when lzma is not present."""
     # https://github.com/pandas-dev/pandas/issues/27575
@@ -215,8 +229,9 @@ def test_with_missing_lzma():
     subprocess.check_output([sys.executable, "-c", code], stderr=subprocess.PIPE)
 
 
+@pytest.mark.single_cpu
 def test_with_missing_lzma_runtime():
-    """Tests if RuntimeError is hit when calling lzma without
+    """Tests if ModuleNotFoundError is hit when calling lzma without
     having the module available.
     """
     code = textwrap.dedent(
@@ -226,7 +241,7 @@ def test_with_missing_lzma_runtime():
         sys.modules['lzma'] = None
         import pandas as pd
         df = pd.DataFrame()
-        with pytest.raises(RuntimeError, match='lzma module'):
+        with pytest.raises(ModuleNotFoundError, match='import of lzma'):
             df.to_csv('foo.csv', compression='xz')
         """
     )

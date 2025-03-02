@@ -84,6 +84,19 @@ with the dtype.
    In the future, we may provide an option for :class:`Series` to infer a
    nullable-integer dtype.
 
+If you create a column of ``NA`` values (for example to fill them later)
+with ``df['new_col'] = pd.NA``, the ``dtype`` would be set to ``object`` in the
+new column. The performance on this column will be worse than with
+the appropriate type. It's better to use
+``df['new_col'] = pd.Series(pd.NA, dtype="Int64")``
+(or another ``dtype`` that supports ``NA``).
+
+.. ipython:: python
+
+   df = pd.DataFrame()
+   df['objects'] = pd.NA
+   df.dtypes
+
 Operations
 ----------
 
@@ -126,14 +139,15 @@ These dtypes can be merged, reshaped & casted.
    pd.concat([df[["A"]], df[["B", "C"]]], axis=1).dtypes
    df["A"].astype(float)
 
-Reduction and groupby operations such as 'sum' work as well.
+Reduction and groupby operations such as :meth:`~DataFrame.sum` work as well.
 
 .. ipython:: python
 
+   df.sum(numeric_only=True)
    df.sum()
    df.groupby("B").A.sum()
 
-Scalar NA Value
+Scalar NA value
 ---------------
 
 :class:`arrays.IntegerArray` uses :attr:`pandas.NA` as its scalar

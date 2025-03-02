@@ -14,34 +14,25 @@
 #   $ ./ci/code_checks.sh single-docs   # check single-page docs build warning-free
 #   $ ./ci/code_checks.sh notebooks     # check execution of documentation notebooks
 
-[[ -z "$1" || "$1" == "code" || "$1" == "doctests" || "$1" == "docstrings" || "$1" == "single-docs" || "$1" == "notebooks" ]] || \
-    { echo "Unknown command $1. Usage: $0 [code|doctests|docstrings|single-docs|notebooks]"; exit 9999; }
+set -uo pipefail
 
-BASE_DIR="$(dirname $0)/.."
-RET=0
-CHECK=$1
-
-function invgrep {
-    # grep with inverse exist status and formatting for azure-pipelines
-    #
-    # This function works exactly as grep, but with opposite exit status:
-    # - 0 (success) when no patterns are found
-    # - 1 (fail) when the patterns are found
-    #
-    # This is useful for the CI, as we want to fail if one of the patterns
-    # that we want to avoid is found by grep.
-    grep -n "$@" | sed "s/^/$INVGREP_PREPEND/" | sed "s/$/$INVGREP_APPEND/" ; EXIT_STATUS=${PIPESTATUS[0]}
-    return $((! $EXIT_STATUS))
-}
-
-if [[ "$GITHUB_ACTIONS" == "true" ]]; then
-    INVGREP_PREPEND="##[error]"
+if [[ -v 1 ]]; then
+    CHECK=$1
+else
+    # script will fail if it uses an unset variable (i.e. $1 is not provided)
+    CHECK=""
 fi
+
+[[ -z "$CHECK" || "$CHECK" == "code" || "$CHECK" == "doctests" || "$CHECK" == "docstrings" || "$CHECK" == "single-docs" || "$CHECK" == "notebooks" ]] || \
+    { echo "Unknown command $1. Usage: $0 [code|doctests|docstrings|single-docs|notebooks]"; exit 1; }
+
+BASE_DIR="$(dirname "$0")/.."
+RET=0
 
 ### CODE ###
 if [[ -z "$CHECK" || "$CHECK" == "code" ]]; then
 
-    MSG='Check import. No warnings, and blocklist some optional dependencies' ; echo $MSG
+    MSG='Check import. No warnings, and blocklist some optional dependencies' ; echo "$MSG"
     python -W error -c "
 import sys
 import pandas
@@ -58,253 +49,214 @@ if mods:
     sys.stderr.write('err: pandas should not import: {}\n'.format(', '.join(mods)))
     sys.exit(len(mods))
     "
-    RET=$(($RET + $?)) ; echo $MSG "DONE"
+    RET=$(($RET + $?)) ; echo "$MSG" "DONE"
 
 fi
 
 ### DOCTESTS ###
 if [[ -z "$CHECK" || "$CHECK" == "doctests" ]]; then
 
-    MSG='Python and Cython Doctests' ; echo $MSG
+    MSG='Python and Cython Doctests' ; echo "$MSG"
     python -c 'import pandas as pd; pd.test(run_doctests=True)'
-    RET=$(($RET + $?)) ; echo $MSG "DONE"
+    RET=$(($RET + $?)) ; echo "$MSG" "DONE"
 
 fi
 
 ### DOCSTRINGS ###
 if [[ -z "$CHECK" || "$CHECK" == "docstrings" ]]; then
 
-    MSG='Validate docstrings (EX02, EX04, GL01, GL02, GL03, GL04, GL05, GL06, GL07, GL09, GL10, PR03, PR04, PR05, PR06, PR08, PR09, PR10, RT01, RT02, RT04, RT05, SA02, SA03, SA04, SS01, SS02, SS03, SS04, SS05, SS06)' ; echo $MSG
-    $BASE_DIR/scripts/validate_docstrings.py --format=actions --errors=EX02,EX04,GL01,GL02,GL03,GL04,GL05,GL06,GL07,GL09,GL10,PR03,PR04,PR05,PR06,PR08,PR09,PR10,RT01,RT02,RT04,RT05,SA02,SA03,SA04,SS01,SS02,SS03,SS04,SS05,SS06
-    RET=$(($RET + $?)) ; echo $MSG "DONE"
+    MSG='Validate Docstrings' ; echo "$MSG"
+    "$BASE_DIR"/scripts/validate_docstrings.py \
+        --format=actions \
+        -i ES01 `# For now it is ok if docstrings are missing the extended summary` \
+        -i "pandas.Series.dt PR01" `# Accessors are implemented as classes, but we do not document the Parameters section` \
+        -i "pandas.Period.freq GL08" \
+        -i "pandas.Period.ordinal GL08" \
+        -i "pandas.Timedelta.max PR02" \
+        -i "pandas.Timedelta.min PR02" \
+        -i "pandas.Timedelta.resolution PR02" \
+        -i "pandas.Timestamp.max PR02" \
+        -i "pandas.Timestamp.min PR02" \
+        -i "pandas.Timestamp.resolution PR02" \
+        -i "pandas.Timestamp.tzinfo GL08" \
+        -i "pandas.core.groupby.DataFrameGroupBy.plot PR02" \
+        -i "pandas.core.groupby.SeriesGroupBy.plot PR02" \
+        -i "pandas.core.resample.Resampler.quantile PR01,PR07" \
+        -i "pandas.tseries.offsets.BDay PR02,SA01" \
+        -i "pandas.tseries.offsets.BQuarterBegin.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.BQuarterBegin.n GL08" \
+        -i "pandas.tseries.offsets.BQuarterBegin.normalize GL08" \
+        -i "pandas.tseries.offsets.BQuarterBegin.rule_code GL08" \
+        -i "pandas.tseries.offsets.BQuarterBegin.startingMonth GL08" \
+        -i "pandas.tseries.offsets.BQuarterEnd.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.BQuarterEnd.n GL08" \
+        -i "pandas.tseries.offsets.BQuarterEnd.normalize GL08" \
+        -i "pandas.tseries.offsets.BQuarterEnd.rule_code GL08" \
+        -i "pandas.tseries.offsets.BQuarterEnd.startingMonth GL08" \
+        -i "pandas.tseries.offsets.BYearBegin.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.BYearBegin.month GL08" \
+        -i "pandas.tseries.offsets.BYearBegin.n GL08" \
+        -i "pandas.tseries.offsets.BYearBegin.normalize GL08" \
+        -i "pandas.tseries.offsets.BYearEnd.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.BYearEnd.month GL08" \
+        -i "pandas.tseries.offsets.BYearEnd.n GL08" \
+        -i "pandas.tseries.offsets.BYearEnd.normalize GL08" \
+        -i "pandas.tseries.offsets.BusinessDay PR02,SA01" \
+        -i "pandas.tseries.offsets.BusinessDay.calendar GL08" \
+        -i "pandas.tseries.offsets.BusinessDay.holidays GL08" \
+        -i "pandas.tseries.offsets.BusinessDay.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.BusinessDay.n GL08" \
+        -i "pandas.tseries.offsets.BusinessDay.normalize GL08" \
+        -i "pandas.tseries.offsets.BusinessDay.weekmask GL08" \
+        -i "pandas.tseries.offsets.BusinessHour PR02,SA01" \
+        -i "pandas.tseries.offsets.BusinessHour.calendar GL08" \
+        -i "pandas.tseries.offsets.BusinessHour.end GL08" \
+        -i "pandas.tseries.offsets.BusinessHour.holidays GL08" \
+        -i "pandas.tseries.offsets.BusinessHour.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.BusinessHour.n GL08" \
+        -i "pandas.tseries.offsets.BusinessHour.normalize GL08" \
+        -i "pandas.tseries.offsets.BusinessHour.start GL08" \
+        -i "pandas.tseries.offsets.BusinessHour.weekmask GL08" \
+        -i "pandas.tseries.offsets.BusinessMonthBegin.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.BusinessMonthBegin.n GL08" \
+        -i "pandas.tseries.offsets.BusinessMonthBegin.normalize GL08" \
+        -i "pandas.tseries.offsets.BusinessMonthEnd.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.BusinessMonthEnd.n GL08" \
+        -i "pandas.tseries.offsets.BusinessMonthEnd.normalize GL08" \
+        -i "pandas.tseries.offsets.CBMonthBegin PR02" \
+        -i "pandas.tseries.offsets.CBMonthEnd PR02" \
+        -i "pandas.tseries.offsets.CDay PR02,SA01" \
+        -i "pandas.tseries.offsets.CustomBusinessDay PR02,SA01" \
+        -i "pandas.tseries.offsets.CustomBusinessDay.calendar GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessDay.holidays GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessDay.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessDay.n GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessDay.normalize GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessDay.weekmask GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessHour PR02,SA01" \
+        -i "pandas.tseries.offsets.CustomBusinessHour.calendar GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessHour.end GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessHour.holidays GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessHour.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessHour.n GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessHour.normalize GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessHour.start GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessHour.weekmask GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessMonthBegin PR02" \
+        -i "pandas.tseries.offsets.CustomBusinessMonthBegin.calendar GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessMonthBegin.holidays GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessMonthBegin.m_offset GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessMonthBegin.n GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessMonthBegin.normalize GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessMonthBegin.weekmask GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessMonthEnd PR02" \
+        -i "pandas.tseries.offsets.CustomBusinessMonthEnd.calendar GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessMonthEnd.holidays GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessMonthEnd.m_offset GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessMonthEnd.n GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessMonthEnd.normalize GL08" \
+        -i "pandas.tseries.offsets.CustomBusinessMonthEnd.weekmask GL08" \
+        -i "pandas.tseries.offsets.DateOffset.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.DateOffset.n GL08" \
+        -i "pandas.tseries.offsets.DateOffset.normalize GL08" \
+        -i "pandas.tseries.offsets.Day.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.Day.n GL08" \
+        -i "pandas.tseries.offsets.Day.normalize GL08" \
+        -i "pandas.tseries.offsets.Easter.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.Easter.n GL08" \
+        -i "pandas.tseries.offsets.Easter.normalize GL08" \
+        -i "pandas.tseries.offsets.FY5253.get_rule_code_suffix GL08" \
+        -i "pandas.tseries.offsets.FY5253.get_year_end GL08" \
+        -i "pandas.tseries.offsets.FY5253.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.FY5253.n GL08" \
+        -i "pandas.tseries.offsets.FY5253.normalize GL08" \
+        -i "pandas.tseries.offsets.FY5253.rule_code GL08" \
+        -i "pandas.tseries.offsets.FY5253.startingMonth GL08" \
+        -i "pandas.tseries.offsets.FY5253.variation GL08" \
+        -i "pandas.tseries.offsets.FY5253.weekday GL08" \
+        -i "pandas.tseries.offsets.FY5253Quarter.get_rule_code_suffix GL08" \
+        -i "pandas.tseries.offsets.FY5253Quarter.get_weeks GL08" \
+        -i "pandas.tseries.offsets.FY5253Quarter.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.FY5253Quarter.n GL08" \
+        -i "pandas.tseries.offsets.FY5253Quarter.normalize GL08" \
+        -i "pandas.tseries.offsets.FY5253Quarter.qtr_with_extra_week GL08" \
+        -i "pandas.tseries.offsets.FY5253Quarter.rule_code GL08" \
+        -i "pandas.tseries.offsets.FY5253Quarter.startingMonth GL08" \
+        -i "pandas.tseries.offsets.FY5253Quarter.variation GL08" \
+        -i "pandas.tseries.offsets.FY5253Quarter.weekday GL08" \
+        -i "pandas.tseries.offsets.FY5253Quarter.year_has_extra_week GL08" \
+        -i "pandas.tseries.offsets.Hour.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.Hour.n GL08" \
+        -i "pandas.tseries.offsets.Hour.normalize GL08" \
+        -i "pandas.tseries.offsets.LastWeekOfMonth.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.LastWeekOfMonth.n GL08" \
+        -i "pandas.tseries.offsets.LastWeekOfMonth.normalize GL08" \
+        -i "pandas.tseries.offsets.LastWeekOfMonth.week GL08" \
+        -i "pandas.tseries.offsets.LastWeekOfMonth.weekday GL08" \
+        -i "pandas.tseries.offsets.Micro.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.Micro.n GL08" \
+        -i "pandas.tseries.offsets.Micro.normalize GL08" \
+        -i "pandas.tseries.offsets.Milli.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.Milli.n GL08" \
+        -i "pandas.tseries.offsets.Milli.normalize GL08" \
+        -i "pandas.tseries.offsets.Minute.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.Minute.n GL08" \
+        -i "pandas.tseries.offsets.Minute.normalize GL08" \
+        -i "pandas.tseries.offsets.MonthBegin.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.MonthBegin.n GL08" \
+        -i "pandas.tseries.offsets.MonthBegin.normalize GL08" \
+        -i "pandas.tseries.offsets.MonthEnd.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.MonthEnd.n GL08" \
+        -i "pandas.tseries.offsets.MonthEnd.normalize GL08" \
+        -i "pandas.tseries.offsets.Nano.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.Nano.normalize GL08" \
+        -i "pandas.tseries.offsets.Nano.n GL08" \
+        -i "pandas.tseries.offsets.QuarterBegin.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.QuarterBegin.n GL08" \
+        -i "pandas.tseries.offsets.QuarterBegin.normalize GL08" \
+        -i "pandas.tseries.offsets.QuarterBegin.rule_code GL08" \
+        -i "pandas.tseries.offsets.QuarterBegin.startingMonth GL08" \
+        -i "pandas.tseries.offsets.QuarterEnd.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.QuarterEnd.n GL08" \
+        -i "pandas.tseries.offsets.QuarterEnd.normalize GL08" \
+        -i "pandas.tseries.offsets.QuarterEnd.rule_code GL08" \
+        -i "pandas.tseries.offsets.QuarterEnd.startingMonth GL08" \
+        -i "pandas.tseries.offsets.Second.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.Second.n GL08" \
+        -i "pandas.tseries.offsets.Second.normalize GL08" \
+        -i "pandas.tseries.offsets.SemiMonthBegin.day_of_month GL08" \
+        -i "pandas.tseries.offsets.SemiMonthBegin.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.SemiMonthBegin.n GL08" \
+        -i "pandas.tseries.offsets.SemiMonthBegin.normalize GL08" \
+        -i "pandas.tseries.offsets.SemiMonthBegin.rule_code GL08" \
+        -i "pandas.tseries.offsets.SemiMonthEnd.day_of_month GL08" \
+        -i "pandas.tseries.offsets.SemiMonthEnd.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.SemiMonthEnd.n GL08" \
+        -i "pandas.tseries.offsets.SemiMonthEnd.normalize GL08" \
+        -i "pandas.tseries.offsets.SemiMonthEnd.rule_code GL08" \
+        -i "pandas.tseries.offsets.Tick GL08" \
+        -i "pandas.tseries.offsets.Tick.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.Tick.n GL08" \
+        -i "pandas.tseries.offsets.Tick.normalize GL08" \
+        -i "pandas.tseries.offsets.Week.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.Week.n GL08" \
+        -i "pandas.tseries.offsets.Week.normalize GL08" \
+        -i "pandas.tseries.offsets.Week.weekday GL08" \
+        -i "pandas.tseries.offsets.WeekOfMonth.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.WeekOfMonth.n GL08" \
+        -i "pandas.tseries.offsets.WeekOfMonth.normalize GL08" \
+        -i "pandas.tseries.offsets.WeekOfMonth.week GL08" \
+        -i "pandas.tseries.offsets.WeekOfMonth.weekday GL08" \
+        -i "pandas.tseries.offsets.YearBegin.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.YearBegin.month GL08" \
+        -i "pandas.tseries.offsets.YearBegin.n GL08" \
+        -i "pandas.tseries.offsets.YearBegin.normalize GL08" \
+        -i "pandas.tseries.offsets.YearEnd.is_on_offset GL08" \
+        -i "pandas.tseries.offsets.YearEnd.month GL08" \
+        -i "pandas.tseries.offsets.YearEnd.n GL08" \
+        -i "pandas.tseries.offsets.YearEnd.normalize GL08" \
+        -i "pandas.util.hash_pandas_object PR07,SA01" # There should be no backslash in the final line, please keep this comment in the last ignored function
 
-    MSG='Partially validate docstrings (EX01)' ;  echo $MSG
-    $BASE_DIR/scripts/validate_docstrings.py --format=actions --errors=EX01 --ignore_functions \
-        pandas.Series.backfill \
-        pandas.Series.pad \
-        pandas.Series.hist \
-        pandas.errors.AccessorRegistrationWarning \
-        pandas.errors.AttributeConflictWarning \
-        pandas.errors.DataError \
-        pandas.errors.IncompatibilityWarning \
-        pandas.errors.InvalidComparison \
-        pandas.errors.IntCastingNaNError \
-        pandas.errors.LossySetitemError \
-        pandas.errors.MergeError \
-        pandas.errors.NoBufferPresent \
-        pandas.errors.NullFrequencyError \
-        pandas.errors.NumbaUtilError \
-        pandas.errors.OptionError \
-        pandas.errors.OutOfBoundsDatetime \
-        pandas.errors.OutOfBoundsTimedelta \
-        pandas.errors.ParserError \
-        pandas.errors.PerformanceWarning \
-        pandas.errors.PyperclipException \
-        pandas.errors.PyperclipWindowsException \
-        pandas.errors.UnsortedIndexError \
-        pandas.errors.UnsupportedFunctionCall \
-        pandas.test \
-        pandas.NaT \
-        pandas.Timestamp.date \
-        pandas.Timestamp.dst \
-        pandas.Timestamp.isocalendar \
-        pandas.Timestamp.isoweekday \
-        pandas.Timestamp.strptime \
-        pandas.Timestamp.time \
-        pandas.Timestamp.timetuple \
-        pandas.Timestamp.timetz \
-        pandas.Timestamp.to_datetime64 \
-        pandas.Timestamp.toordinal \
-        pandas.Timestamp.tzname \
-        pandas.Timestamp.utcoffset \
-        pandas.Timestamp.utctimetuple \
-        pandas.Timestamp.weekday \
-        pandas.arrays.TimedeltaArray \
-        pandas.Period.asfreq \
-        pandas.Period.now \
-        pandas.arrays.PeriodArray \
-        pandas.CategoricalDtype.categories \
-        pandas.CategoricalDtype.ordered \
-        pandas.Categorical.dtype \
-        pandas.Categorical.categories \
-        pandas.Categorical.ordered \
-        pandas.Categorical.codes \
-        pandas.Categorical.__array__ \
-        pandas.SparseDtype \
-        pandas.DatetimeTZDtype.unit \
-        pandas.DatetimeTZDtype.tz \
-        pandas.PeriodDtype.freq \
-        pandas.IntervalDtype.subtype \
-        pandas_dtype \
-        pandas.api.types.is_bool \
-        pandas.api.types.is_complex \
-        pandas.api.types.is_float \
-        pandas.api.types.is_integer \
-        pandas.api.types.pandas_dtype \
-        pandas.read_clipboard \
-        pandas.ExcelFile \
-        pandas.ExcelFile.parse \
-        pandas.DataFrame.to_html \
-        pandas.io.formats.style.Styler.to_html \
-        pandas.HDFStore.put \
-        pandas.HDFStore.append \
-        pandas.HDFStore.get \
-        pandas.HDFStore.select \
-        pandas.HDFStore.info \
-        pandas.HDFStore.keys \
-        pandas.HDFStore.groups \
-        pandas.HDFStore.walk \
-        pandas.read_feather \
-        pandas.DataFrame.to_feather \
-        pandas.read_parquet \
-        pandas.read_orc \
-        pandas.read_sas \
-        pandas.read_spss \
-        pandas.read_sql_query \
-        pandas.read_gbq \
-        pandas.io.stata.StataReader.data_label \
-        pandas.io.stata.StataReader.value_labels \
-        pandas.io.stata.StataReader.variable_labels \
-        pandas.io.stata.StataWriter.write_file \
-        pandas.core.resample.Resampler.__iter__ \
-        pandas.core.resample.Resampler.groups \
-        pandas.core.resample.Resampler.indices \
-        pandas.core.resample.Resampler.get_group \
-        pandas.core.resample.Resampler.ffill \
-        pandas.core.resample.Resampler.asfreq \
-        pandas.core.resample.Resampler.count \
-        pandas.core.resample.Resampler.nunique \
-        pandas.core.resample.Resampler.max \
-        pandas.core.resample.Resampler.mean \
-        pandas.core.resample.Resampler.median \
-        pandas.core.resample.Resampler.min \
-        pandas.core.resample.Resampler.ohlc \
-        pandas.core.resample.Resampler.prod \
-        pandas.core.resample.Resampler.size \
-        pandas.core.resample.Resampler.sem \
-        pandas.core.resample.Resampler.std \
-        pandas.core.resample.Resampler.sum \
-        pandas.core.resample.Resampler.var \
-        pandas.core.resample.Resampler.quantile \
-        pandas.describe_option \
-        pandas.reset_option \
-        pandas.get_option \
-        pandas.set_option \
-        pandas.plotting.deregister_matplotlib_converters \
-        pandas.plotting.plot_params \
-        pandas.plotting.register_matplotlib_converters \
-        pandas.plotting.table \
-        pandas.util.hash_array \
-        pandas.util.hash_pandas_object \
-        pandas_object \
-        pandas.api.interchange.from_dataframe \
-        pandas.Index.asof_locs \
-        pandas.Index.get_slice_bound \
-        pandas.RangeIndex \
-        pandas.RangeIndex.start \
-        pandas.RangeIndex.stop \
-        pandas.RangeIndex.step \
-        pandas.RangeIndex.from_range \
-        pandas.CategoricalIndex.codes \
-        pandas.CategoricalIndex.categories \
-        pandas.CategoricalIndex.ordered \
-        pandas.CategoricalIndex.reorder_categories \
-        pandas.CategoricalIndex.set_categories \
-        pandas.CategoricalIndex.as_ordered \
-        pandas.CategoricalIndex.as_unordered \
-        pandas.CategoricalIndex.equals \
-        pandas.IntervalIndex.values \
-        pandas.IntervalIndex.to_tuples \
-        pandas.MultiIndex.dtypes \
-        pandas.MultiIndex.drop \
-        pandas.DatetimeIndex.snap \
-        pandas.DatetimeIndex.as_unit \
-        pandas.DatetimeIndex.to_pydatetime \
-        pandas.DatetimeIndex.to_series \
-        pandas.DatetimeIndex.mean \
-        pandas.DatetimeIndex.std \
-        pandas.TimedeltaIndex \
-        pandas.core.window.rolling.Rolling.max \
-        pandas.core.window.rolling.Rolling.cov \
-        pandas.core.window.rolling.Rolling.skew \
-        pandas.core.window.rolling.Rolling.apply \
-        pandas.core.window.rolling.Window.mean \
-        pandas.core.window.rolling.Window.sum \
-        pandas.core.window.rolling.Window.var \
-        pandas.core.window.rolling.Window.std \
-        pandas.core.window.expanding.Expanding.count \
-        pandas.core.window.expanding.Expanding.sum \
-        pandas.core.window.expanding.Expanding.mean \
-        pandas.core.window.expanding.Expanding.median \
-        pandas.core.window.expanding.Expanding.min \
-        pandas.core.window.expanding.Expanding.max \
-        pandas.core.window.expanding.Expanding.corr \
-        pandas.core.window.expanding.Expanding.cov \
-        pandas.core.window.expanding.Expanding.skew \
-        pandas.core.window.expanding.Expanding.apply \
-        pandas.core.window.expanding.Expanding.quantile \
-        pandas.core.window.ewm.ExponentialMovingWindow.mean \
-        pandas.core.window.ewm.ExponentialMovingWindow.sum \
-        pandas.core.window.ewm.ExponentialMovingWindow.std \
-        pandas.core.window.ewm.ExponentialMovingWindow.var \
-        pandas.core.window.ewm.ExponentialMovingWindow.corr \
-        pandas.core.window.ewm.ExponentialMovingWindow.cov \
-        pandas.api.indexers.BaseIndexer \
-        pandas.api.indexers.VariableOffsetWindowIndexer \
-        pandas.io.formats.style.Styler \
-        pandas.io.formats.style.Styler.from_custom_template \
-        pandas.io.formats.style.Styler.set_caption \
-        pandas.io.formats.style.Styler.set_sticky \
-        pandas.io.formats.style.Styler.set_uuid \
-        pandas.io.formats.style.Styler.clear \
-        pandas.io.formats.style.Styler.highlight_null \
-        pandas.io.formats.style.Styler.highlight_max \
-        pandas.io.formats.style.Styler.highlight_min \
-        pandas.io.formats.style.Styler.bar \
-        pandas.io.formats.style.Styler.to_string \
-        pandas.api.extensions.ExtensionDtype \
-        pandas.api.extensions.ExtensionArray \
-        pandas.arrays.PandasArray \
-        pandas.api.extensions.ExtensionArray._accumulate \
-        pandas.api.extensions.ExtensionArray._concat_same_type \
-        pandas.api.extensions.ExtensionArray._formatter \
-        pandas.api.extensions.ExtensionArray._from_factorized \
-        pandas.api.extensions.ExtensionArray._from_sequence \
-        pandas.api.extensions.ExtensionArray._from_sequence_of_strings \
-        pandas.api.extensions.ExtensionArray._hash_pandas_object \
-        pandas.api.extensions.ExtensionArray._reduce \
-        pandas.api.extensions.ExtensionArray._values_for_argsort \
-        pandas.api.extensions.ExtensionArray._values_for_factorize \
-        pandas.api.extensions.ExtensionArray.argsort \
-        pandas.api.extensions.ExtensionArray.astype \
-        pandas.api.extensions.ExtensionArray.copy \
-        pandas.api.extensions.ExtensionArray.view \
-        pandas.api.extensions.ExtensionArray.dropna \
-        pandas.api.extensions.ExtensionArray.equals \
-        pandas.api.extensions.ExtensionArray.factorize \
-        pandas.api.extensions.ExtensionArray.fillna \
-        pandas.api.extensions.ExtensionArray.insert \
-        pandas.api.extensions.ExtensionArray.isin \
-        pandas.api.extensions.ExtensionArray.isna \
-        pandas.api.extensions.ExtensionArray.ravel \
-        pandas.api.extensions.ExtensionArray.searchsorted \
-        pandas.api.extensions.ExtensionArray.shift \
-        pandas.api.extensions.ExtensionArray.unique \
-        pandas.api.extensions.ExtensionArray.dtype \
-        pandas.api.extensions.ExtensionArray.nbytes \
-        pandas.api.extensions.ExtensionArray.ndim \
-        pandas.api.extensions.ExtensionArray.shape \
-        pandas.api.extensions.ExtensionArray.tolist \
-        pandas.DataFrame.columns \
-        pandas.DataFrame.backfill \
-        pandas.DataFrame.ffill \
-        pandas.DataFrame.pad \
-        pandas.DataFrame.swapaxes \
-        pandas.DataFrame.attrs \
-        pandas.DataFrame.plot \
-        pandas.DataFrame.to_gbq \
-        pandas.DataFrame.style \
-        pandas.DataFrame.__dataframe__
     RET=$(($RET + $?)) ; echo $MSG "DONE"
 
 fi
@@ -313,16 +265,15 @@ fi
 if [[ -z "$CHECK" || "$CHECK" == "notebooks" ]]; then
 
     MSG='Notebooks' ; echo $MSG
-    jupyter nbconvert --execute $(find doc/source -name '*.ipynb') --to notebook
+    jupyter nbconvert --execute "$(find doc/source -name '*.ipynb')" --to notebook
     RET=$(($RET + $?)) ; echo $MSG "DONE"
 
 fi
 
 ### SINGLE-PAGE DOCS ###
 if [[ -z "$CHECK" || "$CHECK" == "single-docs" ]]; then
-    python doc/make.py --warnings-are-errors --single pandas.Series.value_counts
-    python doc/make.py --warnings-are-errors --single pandas.Series.str.split
-    python doc/make.py clean
+    python doc/make.py --warnings-are-errors --no-browser --single pandas.Series.value_counts
+    python doc/make.py --warnings-are-errors --no-browser --single pandas.Series.str.split
 fi
 
 exit $RET

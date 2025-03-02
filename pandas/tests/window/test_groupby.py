@@ -3,8 +3,10 @@ import pytest
 
 from pandas import (
     DataFrame,
+    DatetimeIndex,
     Index,
     MultiIndex,
+    NamedAgg,
     Series,
     Timestamp,
     date_range,
@@ -89,6 +91,8 @@ class TestRolling:
             "mean",
             "min",
             "max",
+            "first",
+            "last",
             "count",
             "kurt",
             "skew",
@@ -100,8 +104,6 @@ class TestRolling:
 
         result = getattr(r, f)()
         expected = g.apply(lambda x: getattr(x.rolling(4), f)())
-        # groupby.apply doesn't drop the grouped-by column
-        expected = expected.drop("A", axis=1)
         # GH 39732
         expected_index = MultiIndex.from_arrays([roll_frame["A"], range(40)])
         expected.index = expected_index
@@ -114,8 +116,6 @@ class TestRolling:
 
         result = getattr(r, f)(ddof=1)
         expected = g.apply(lambda x: getattr(x.rolling(4), f)(ddof=1))
-        # groupby.apply doesn't drop the grouped-by column
-        expected = expected.drop("A", axis=1)
         # GH 39732
         expected_index = MultiIndex.from_arrays([roll_frame["A"], range(40)])
         expected.index = expected_index
@@ -132,8 +132,6 @@ class TestRolling:
         expected = g.apply(
             lambda x: x.rolling(4).quantile(0.4, interpolation=interpolation)
         )
-        # groupby.apply doesn't drop the grouped-by column
-        expected = expected.drop("A", axis=1)
         # GH 39732
         expected_index = MultiIndex.from_arrays([roll_frame["A"], range(40)])
         expected.index = expected_index
@@ -236,8 +234,6 @@ class TestRolling:
         # reduction
         result = r.apply(lambda x: x.sum(), raw=raw)
         expected = g.apply(lambda x: x.rolling(4).apply(lambda y: y.sum(), raw=raw))
-        # groupby.apply doesn't drop the grouped-by column
-        expected = expected.drop("A", axis=1)
         # GH 39732
         expected_index = MultiIndex.from_arrays([roll_frame["A"], range(40)])
         expected.index = expected_index
@@ -361,24 +357,11 @@ class TestRolling:
             .rolling(6, on="Date", center=True, min_periods=1)
             .value.mean()
         )
+        mi = MultiIndex.from_arrays([df["gb"], df["Date"]], names=["gb", "Date"])
         expected = Series(
             [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 7.0, 7.5, 7.5, 7.5],
             name="value",
-            index=MultiIndex.from_tuples(
-                (
-                    ("group_1", Timestamp("2020-01-01")),
-                    ("group_1", Timestamp("2020-01-02")),
-                    ("group_1", Timestamp("2020-01-03")),
-                    ("group_1", Timestamp("2020-01-04")),
-                    ("group_1", Timestamp("2020-01-05")),
-                    ("group_1", Timestamp("2020-01-06")),
-                    ("group_2", Timestamp("2020-01-07")),
-                    ("group_2", Timestamp("2020-01-08")),
-                    ("group_2", Timestamp("2020-01-09")),
-                    ("group_2", Timestamp("2020-01-10")),
-                ),
-                names=["gb", "Date"],
-            ),
+            index=mi,
         )
         tm.assert_series_equal(result, expected)
 
@@ -447,7 +430,7 @@ class TestRolling:
             ):
                 min_periods = self.window_size if min_periods is None else 0
                 end = np.arange(num_values, dtype=np.int64) + 1
-                start = end.copy() - self.window_size
+                start = end - self.window_size
                 start[start < 0] = min_periods
                 return start, end
 
@@ -466,34 +449,71 @@ class TestRolling:
         # GH 35549
         df = DataFrame(
             {
-                "column1": range(6),
-                "column2": range(6),
-                "group": 3 * ["A", "B"],
-                "date": [Timestamp("2019-01-01")] * 6,
+                "column1": range(8),
+                "column2": range(8),
+                "group": ["A"] * 4 + ["B"] * 4,
+                "date": [
+                    Timestamp(date)
+                    for date in ["2019-01-01", "2019-01-01", "2019-01-02", "2019-01-02"]
+                ]
+                * 2,
             }
         )
         result = (
             df.groupby("group").rolling("1D", on="date", closed="left")["column1"].sum()
         )
         expected = Series(
-            [np.nan, 0.0, 2.0, np.nan, 1.0, 4.0],
-            index=MultiIndex.from_tuples(
-                [("A", Timestamp("2019-01-01"))] * 3
-                + [("B", Timestamp("2019-01-01"))] * 3,
+            [np.nan, np.nan, 1.0, 1.0, np.nan, np.nan, 9.0, 9.0],
+            index=MultiIndex.from_frame(
+                df[["group", "date"]],
                 names=["group", "date"],
             ),
             name="column1",
         )
         tm.assert_series_equal(result, expected)
 
+    def test_groupby_rolling_agg_namedagg(self):
+        # GH#28333
+        df = DataFrame(
+            {
+                "kind": ["cat", "dog", "cat", "dog", "cat", "dog"],
+                "height": [9.1, 6.0, 9.5, 34.0, 12.0, 8.0],
+                "weight": [7.9, 7.5, 9.9, 198.0, 10.0, 42.0],
+            }
+        )
+        result = (
+            df.groupby("kind")
+            .rolling(2)
+            .agg(
+                total_weight=NamedAgg(column="weight", aggfunc=sum),
+                min_height=NamedAgg(column="height", aggfunc=min),
+            )
+        )
+        expected = DataFrame(
+            {
+                "total_weight": [np.nan, 17.8, 19.9, np.nan, 205.5, 240.0],
+                "min_height": [np.nan, 9.1, 9.5, np.nan, 6.0, 8.0],
+            },
+            index=MultiIndex(
+                [["cat", "dog"], [0, 1, 2, 3, 4, 5]],
+                [[0, 0, 0, 1, 1, 1], [0, 2, 4, 1, 3, 5]],
+                names=["kind", None],
+            ),
+        )
+        tm.assert_frame_equal(result, expected)
+
     def test_groupby_subset_rolling_subset_with_closed(self):
         # GH 35549
         df = DataFrame(
             {
-                "column1": range(6),
-                "column2": range(6),
-                "group": 3 * ["A", "B"],
-                "date": [Timestamp("2019-01-01")] * 6,
+                "column1": range(8),
+                "column2": range(8),
+                "group": ["A"] * 4 + ["B"] * 4,
+                "date": [
+                    Timestamp(date)
+                    for date in ["2019-01-01", "2019-01-01", "2019-01-02", "2019-01-02"]
+                ]
+                * 2,
             }
         )
 
@@ -503,10 +523,9 @@ class TestRolling:
             .sum()
         )
         expected = Series(
-            [np.nan, 0.0, 2.0, np.nan, 1.0, 4.0],
-            index=MultiIndex.from_tuples(
-                [("A", Timestamp("2019-01-01"))] * 3
-                + [("B", Timestamp("2019-01-01"))] * 3,
+            [np.nan, np.nan, 1.0, 1.0, np.nan, np.nan, 9.0, 9.0],
+            index=MultiIndex.from_frame(
+                df[["group", "date"]],
                 names=["group", "date"],
             ),
             name="column1",
@@ -576,7 +595,7 @@ class TestRolling:
 
         groups = df.groupby("group")
         df["count_to_date"] = groups.cumcount()
-        rolling_groups = groups.rolling("10d", on="eventTime")
+        rolling_groups = groups.rolling("10D", on="eventTime")
         result = rolling_groups.apply(lambda df: df.shape[0])
         expected = DataFrame(
             [
@@ -607,35 +626,46 @@ class TestRolling:
         expected = expected.drop(columns="foo")
         tm.assert_frame_equal(result, expected)
 
-    def test_groupby_rolling_count_closed_on(self):
+    def test_groupby_rolling_count_closed_on(self, unit):
         # GH 35869
         df = DataFrame(
             {
                 "column1": range(6),
                 "column2": range(6),
                 "group": 3 * ["A", "B"],
-                "date": date_range(end="20190101", periods=6),
+                "date": date_range(end="20190101", periods=6, unit=unit),
             }
         )
-        result = (
-            df.groupby("group")
-            .rolling("3d", on="date", closed="left")["column1"]
-            .count()
+        msg = "'d' is deprecated and will be removed in a future version."
+
+        with tm.assert_produces_warning(FutureWarning, match=msg):
+            result = (
+                df.groupby("group")
+                .rolling("3d", on="date", closed="left")["column1"]
+                .count()
+            )
+        dti = DatetimeIndex(
+            [
+                "2018-12-27",
+                "2018-12-29",
+                "2018-12-31",
+                "2018-12-28",
+                "2018-12-30",
+                "2019-01-01",
+            ],
+            dtype=f"M8[{unit}]",
+        )
+        mi = MultiIndex.from_arrays(
+            [
+                ["A", "A", "A", "B", "B", "B"],
+                dti,
+            ],
+            names=["group", "date"],
         )
         expected = Series(
             [np.nan, 1.0, 1.0, np.nan, 1.0, 1.0],
             name="column1",
-            index=MultiIndex.from_tuples(
-                [
-                    ("A", Timestamp("2018-12-27")),
-                    ("A", Timestamp("2018-12-29")),
-                    ("A", Timestamp("2018-12-31")),
-                    ("B", Timestamp("2018-12-28")),
-                    ("B", Timestamp("2018-12-30")),
-                    ("B", Timestamp("2019-01-01")),
-                ],
-                names=["group", "date"],
-            ),
+            index=mi,
         )
         tm.assert_series_equal(result, expected)
 
@@ -863,7 +893,7 @@ class TestRolling:
             ],
         ],
     )
-    def test_as_index_false(self, by, expected_data):
+    def test_as_index_false(self, by, expected_data, unit):
         # GH 39433
         data = [
             ["A", "2018-01-01", 100.0],
@@ -872,7 +902,7 @@ class TestRolling:
             ["B", "2018-01-02", 250.0],
         ]
         df = DataFrame(data, columns=["id", "date", "num"])
-        df["date"] = to_datetime(df["date"])
+        df["date"] = df["date"].astype(f"M8[{unit}]")
         df = df.set_index(["date"])
 
         gp_by = [getattr(df, attr) for attr in by]
@@ -886,6 +916,8 @@ class TestRolling:
             expected,
             index=df.index,
         )
+        if "date" in expected_data:
+            expected["date"] = expected["date"].astype(f"M8[{unit}]")
         tm.assert_frame_equal(result, expected)
 
     def test_nan_and_zero_endpoints(self, any_int_numpy_dtype):
@@ -1002,7 +1034,7 @@ class TestExpanding:
         return DataFrame({"A": [1] * 20 + [2] * 12 + [3] * 8, "B": np.arange(40)})
 
     @pytest.mark.parametrize(
-        "f", ["sum", "mean", "min", "max", "count", "kurt", "skew"]
+        "f", ["sum", "mean", "min", "max", "first", "last", "count", "kurt", "skew"]
     )
     def test_expanding(self, f, frame):
         g = frame.groupby("A", group_keys=False)
@@ -1010,8 +1042,6 @@ class TestExpanding:
 
         result = getattr(r, f)()
         expected = g.apply(lambda x: getattr(x.expanding(), f)())
-        # groupby.apply doesn't drop the grouped-by column
-        expected = expected.drop("A", axis=1)
         # GH 39732
         expected_index = MultiIndex.from_arrays([frame["A"], range(40)])
         expected.index = expected_index
@@ -1024,8 +1054,6 @@ class TestExpanding:
 
         result = getattr(r, f)(ddof=0)
         expected = g.apply(lambda x: getattr(x.expanding(), f)(ddof=0))
-        # groupby.apply doesn't drop the grouped-by column
-        expected = expected.drop("A", axis=1)
         # GH 39732
         expected_index = MultiIndex.from_arrays([frame["A"], range(40)])
         expected.index = expected_index
@@ -1042,8 +1070,6 @@ class TestExpanding:
         expected = g.apply(
             lambda x: x.expanding().quantile(0.4, interpolation=interpolation)
         )
-        # groupby.apply doesn't drop the grouped-by column
-        expected = expected.drop("A", axis=1)
         # GH 39732
         expected_index = MultiIndex.from_arrays([frame["A"], range(40)])
         expected.index = expected_index
@@ -1084,11 +1110,39 @@ class TestExpanding:
         # reduction
         result = r.apply(lambda x: x.sum(), raw=raw)
         expected = g.apply(lambda x: x.expanding().apply(lambda y: y.sum(), raw=raw))
-        # groupby.apply doesn't drop the grouped-by column
-        expected = expected.drop("A", axis=1)
         # GH 39732
         expected_index = MultiIndex.from_arrays([frame["A"], range(40)])
         expected.index = expected_index
+        tm.assert_frame_equal(result, expected)
+
+    def test_groupby_expanding_agg_namedagg(self):
+        # GH#28333
+        df = DataFrame(
+            {
+                "kind": ["cat", "dog", "cat", "dog", "cat", "dog"],
+                "height": [9.1, 6.0, 9.5, 34.0, 12.0, 8.0],
+                "weight": [7.9, 7.5, 9.9, 198.0, 10.0, 42.0],
+            }
+        )
+        result = (
+            df.groupby("kind")
+            .expanding(1)
+            .agg(
+                total_weight=NamedAgg(column="weight", aggfunc=sum),
+                min_height=NamedAgg(column="height", aggfunc=min),
+            )
+        )
+        expected = DataFrame(
+            {
+                "total_weight": [7.9, 17.8, 27.8, 7.5, 205.5, 247.5],
+                "min_height": [9.1, 9.1, 9.1, 6.0, 6.0, 6.0],
+            },
+            index=MultiIndex(
+                [["cat", "dog"], [0, 1, 2, 3, 4, 5]],
+                [[0, 0, 0, 1, 1, 1], [0, 2, 4, 1, 3, 5]],
+                names=["kind", None],
+            ),
+        )
         tm.assert_frame_equal(result, expected)
 
 
@@ -1107,6 +1161,41 @@ class TestEWM:
         result = getattr(df.groupby("A").ewm(com=1.0), method)()
         expected = DataFrame(
             {"B": expected_data},
+            index=MultiIndex.from_tuples(
+                [
+                    ("a", 0),
+                    ("a", 1),
+                    ("a", 2),
+                    ("a", 3),
+                ],
+                names=["A", None],
+            ),
+        )
+        tm.assert_frame_equal(result, expected)
+
+    def test_groupby_ewm_agg_namedagg(self):
+        # GH#28333
+        df = DataFrame({"A": ["a"] * 4, "B": range(4)})
+        result = (
+            df.groupby("A")
+            .ewm(com=1.0)
+            .agg(
+                B_mean=NamedAgg(column="B", aggfunc="mean"),
+                B_std=NamedAgg(column="B", aggfunc="std"),
+                B_var=NamedAgg(column="B", aggfunc="var"),
+            )
+        )
+        expected = DataFrame(
+            {
+                "B_mean": [
+                    0.0,
+                    0.6666666666666666,
+                    1.4285714285714286,
+                    2.2666666666666666,
+                ],
+                "B_std": [np.nan, 0.707107, 0.963624, 1.177164],
+                "B_var": [np.nan, 0.5, 0.9285714285714286, 1.3857142857142857],
+            },
             index=MultiIndex.from_tuples(
                 [
                     ("a", 0),
@@ -1141,7 +1230,9 @@ class TestEWM:
         )
         tm.assert_frame_equal(result, expected)
 
-        expected = df.groupby("A").apply(lambda x: getattr(x.ewm(com=1.0), method)())
+        expected = df.groupby("A")[["B"]].apply(
+            lambda x: getattr(x.ewm(com=1.0), method)()
+        )
         tm.assert_frame_equal(result, expected)
 
     def test_times(self, times_frame):
@@ -1197,15 +1288,15 @@ class TestEWM:
         df = DataFrame(
             {
                 "id": ["a", "a", "b", "b", "b"],
-                "timestamp": date_range("2021-9-1", periods=5, freq="H"),
+                "timestamp": date_range("2021-9-1", periods=5, freq="h"),
                 "y": range(5),
             }
         )
-        grp = df.groupby("id").rolling("1H", on="timestamp")
+        grp = df.groupby("id").rolling("1h", on="timestamp")
         result = grp.count()
         expected_df = DataFrame(
             {
-                "timestamp": date_range("2021-9-1", periods=5, freq="H"),
+                "timestamp": date_range("2021-9-1", periods=5, freq="h"),
                 "y": [1.0] * 5,
             },
             index=MultiIndex.from_arrays(
@@ -1220,7 +1311,7 @@ class TestEWM:
             index=MultiIndex.from_arrays(
                 [
                     ["a", "a", "b", "b", "b"],
-                    date_range("2021-9-1", periods=5, freq="H"),
+                    date_range("2021-9-1", periods=5, freq="h"),
                 ],
                 names=["id", "timestamp"],
             ),
@@ -1230,3 +1321,47 @@ class TestEWM:
         # This is the key test
         result = grp.count()
         tm.assert_frame_equal(result, expected_df)
+
+
+def test_rolling_corr_with_single_integer_in_index():
+    # GH 44078
+    df = DataFrame({"a": [(1,), (1,), (1,)], "b": [4, 5, 6]})
+    gb = df.groupby(["a"])
+    result = gb.rolling(2).corr(other=df)
+    index = MultiIndex.from_tuples([((1,), 0), ((1,), 1), ((1,), 2)], names=["a", None])
+    expected = DataFrame(
+        {"a": [np.nan, np.nan, np.nan], "b": [np.nan, 1.0, 1.0]}, index=index
+    )
+    tm.assert_frame_equal(result, expected)
+
+
+def test_rolling_corr_with_tuples_in_index():
+    # GH 44078
+    df = DataFrame(
+        {
+            "a": [
+                (
+                    1,
+                    2,
+                ),
+                (
+                    1,
+                    2,
+                ),
+                (
+                    1,
+                    2,
+                ),
+            ],
+            "b": [4, 5, 6],
+        }
+    )
+    gb = df.groupby(["a"])
+    result = gb.rolling(2).corr(other=df)
+    index = MultiIndex.from_tuples(
+        [((1, 2), 0), ((1, 2), 1), ((1, 2), 2)], names=["a", None]
+    )
+    expected = DataFrame(
+        {"a": [np.nan, np.nan, np.nan], "b": [np.nan, 1.0, 1.0]}, index=index
+    )
+    tm.assert_frame_equal(result, expected)

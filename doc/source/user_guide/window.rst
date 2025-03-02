@@ -70,7 +70,8 @@ which will first group the data by the specified keys and then perform a windowi
 
     Some windowing aggregation, ``mean``, ``sum``, ``var`` and ``std`` methods may suffer from numerical
     imprecision due to the underlying windowing algorithms accumulating sums. When values differ
-    with magnitude :math:`1/np.finfo(np.double).eps` this results in truncation. It must be
+    with magnitude ``1/np.finfo(np.double).eps`` (approximately :math:`4.5 \times 10^{15}`),
+    this results in truncation. It must be
     noted, that large values may have an impact on windows, which do not include these values. `Kahan summation
     <https://en.wikipedia.org/wiki/Kahan_summation_algorithm>`__ is used
     to compute the rolling sums to preserve accuracy as much as possible.
@@ -79,9 +80,9 @@ which will first group the data by the specified keys and then perform a windowi
 .. versionadded:: 1.3.0
 
 Some windowing operations also support the ``method='table'`` option in the constructor which
-performs the windowing operation over an entire :class:`DataFrame` instead of a single column or row at a time.
-This can provide a useful performance benefit for a :class:`DataFrame` with many columns or rows
-(with the corresponding ``axis`` argument) or the ability to utilize other columns during the windowing
+performs the windowing operation over an entire :class:`DataFrame` instead of a single column at a time.
+This can provide a useful performance benefit for a :class:`DataFrame` with many columns
+or the ability to utilize other columns during the windowing
 operation. The ``method='table'`` option can only be used if ``engine='numba'`` is specified
 in the corresponding method call.
 
@@ -89,6 +90,7 @@ For example, a `weighted mean <https://en.wikipedia.org/wiki/Weighted_arithmetic
 be calculated with :meth:`~Rolling.apply` by specifying a separate column of weights.
 
 .. ipython:: python
+   :okwarning:
 
    def weighted_mean(x):
        arr = np.ones((1, x.shape[1]))
@@ -114,6 +116,7 @@ the ``update`` argument to continue the windowing calculation.
    df.ewm(0.5).mean()
 
 .. ipython:: python
+   :okwarning:
 
    online_ewm = df.head(2).ewm(0.5).online()
    online_ewm.mean()
@@ -138,7 +141,7 @@ of multiple aggregations applied to a window.
 .. ipython:: python
 
    df = pd.DataFrame({"A": range(5), "B": range(10, 15)})
-   df.expanding().agg([np.sum, np.mean, np.std])
+   df.expanding().agg(["sum", "mean", "std"])
 
 
 .. _window.generic:
@@ -242,7 +245,7 @@ a ``BaseIndexer`` subclass that allows a user to define a custom method for calc
 The ``BaseIndexer`` subclass will need to define a ``get_window_bounds`` method that returns
 a tuple of two arrays, the first being the starting indices of the windows and second being the
 ending indices of the windows. Additionally, ``num_values``, ``min_periods``, ``center``, ``closed``
-and will automatically be passed to ``get_window_bounds`` and the defined method must
+and ``step`` will automatically be passed to ``get_window_bounds`` and the defined method must
 always accept these arguments.
 
 For example, if we have the following :class:`DataFrame`
@@ -257,33 +260,26 @@ For example, if we have the following :class:`DataFrame`
 and we want to use an expanding window where ``use_expanding`` is ``True`` otherwise a window of size
 1, we can create the following ``BaseIndexer`` subclass:
 
-.. code-block:: ipython
+.. ipython:: python
 
-   In [2]: from pandas.api.indexers import BaseIndexer
+   from pandas.api.indexers import BaseIndexer
 
-   In [3]: class CustomIndexer(BaseIndexer):
-      ...:     def get_window_bounds(self, num_values, min_periods, center, closed):
-      ...:         start = np.empty(num_values, dtype=np.int64)
-      ...:         end = np.empty(num_values, dtype=np.int64)
-      ...:         for i in range(num_values):
-      ...:             if self.use_expanding[i]:
-      ...:                 start[i] = 0
-      ...:                 end[i] = i + 1
-      ...:             else:
-      ...:                 start[i] = i
-      ...:                 end[i] = i + self.window_size
-      ...:         return start, end
+   class CustomIndexer(BaseIndexer):
+        def get_window_bounds(self, num_values, min_periods, center, closed, step):
+            start = np.empty(num_values, dtype=np.int64)
+            end = np.empty(num_values, dtype=np.int64)
+            for i in range(num_values):
+                if self.use_expanding[i]:
+                    start[i] = 0
+                    end[i] = i + 1
+                else:
+                    start[i] = i
+                    end[i] = i + self.window_size
+            return start, end
 
-   In [4]: indexer = CustomIndexer(window_size=1, use_expanding=use_expanding)
+   indexer = CustomIndexer(window_size=1, use_expanding=use_expanding)
 
-   In [5]: df.rolling(indexer).sum()
-   Out[5]:
-       values
-   0     0.0
-   1     1.0
-   2     3.0
-   3     3.0
-   4    10.0
+   df.rolling(indexer).sum()
 
 You can view other examples of ``BaseIndexer`` subclasses `here <https://github.com/pandas-dev/pandas/blob/main/pandas/core/indexers/objects.py>`__
 
@@ -361,11 +357,11 @@ See :ref:`enhancing performance with Numba <enhancingperf.numba>` for general us
 
 Numba will be applied in potentially two routines:
 
-#. If ``func`` is a standard Python function, the engine will `JIT <https://numba.pydata.org/numba-doc/latest/user/overview.html>`__ the passed function. ``func`` can also be a JITed function in which case the engine will not JIT the function again.
+#. If ``func`` is a standard Python function, the engine will `JIT <https://numba.readthedocs.io/en/stable/user/overview.html>`__ the passed function. ``func`` can also be a JITed function in which case the engine will not JIT the function again.
 #. The engine will JIT the for loop where the apply function is applied to each window.
 
 The ``engine_kwargs`` argument is a dictionary of keyword arguments that will be passed into the
-`numba.jit decorator <https://numba.pydata.org/numba-doc/latest/reference/jit-compilation.html#numba.jit>`__.
+`numba.jit decorator <https://numba.readthedocs.io/en/stable/user/jit.html>`__.
 These keyword arguments will be applied to *both* the passed function (if a standard Python function)
 and the apply for loop over each window.
 
@@ -572,9 +568,9 @@ One must have :math:`0 < \alpha \leq 1`, and while it is possible to pass
 
    \alpha =
     \begin{cases}
-        \frac{2}{s + 1},               & \text{for span}\ s \geq 1\\
-        \frac{1}{1 + c},               & \text{for center of mass}\ c \geq 0\\
-        1 - \exp^{\frac{\log 0.5}{h}}, & \text{for half-life}\ h > 0
+        \frac{2}{s + 1},            & \text{for span}\ s \geq 1\\
+        \frac{1}{1 + c},            & \text{for center of mass}\ c \geq 0\\
+        1 - e^{\frac{\log 0.5}{h}}, & \text{for half-life}\ h > 0
     \end{cases}
 
 One must specify precisely one of **span**, **center of mass**, **half-life**

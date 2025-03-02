@@ -4,11 +4,9 @@
 # ci
 ci/                               @mroeschke
 
-# web
-web/                              @datapythonista
-
 # docs
 doc/cheatsheet                    @Dr-Irv
+doc/source/development            @noatamir
 
 # pandas
 pandas/_libs/                     @WillAyd

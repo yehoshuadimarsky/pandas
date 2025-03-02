@@ -54,6 +54,8 @@ navbar:
       target: community/coc.html
     - name: "Ecosystem"
       target: community/ecosystem.html
+    - name: "Benchmarks"
+      target: community/benchmarks.html
   - name: "Contribute"
     target: contribute.html
 blog:
@@ -70,11 +72,9 @@ blog:
   - https://phofl.github.io/feeds/pandas.atom.xml
 maintainers:
   active:
-  - wesm
   - jorisvandenbossche
   - TomAugspurger
   - jreback
-  - gfyoung
   - WillAyd
   - mroeschke
   - jbrockmendel
@@ -89,10 +89,9 @@ maintainers:
   - phofl
   - attack68
   - fangchenli
-  - twoertwein
   - lithomas1
-  - mzeitlin11
   - lukemanley
+  - noatamir
   inactive:
   - lodagro
   - jseabold
@@ -105,6 +104,10 @@ maintainers:
   - jschendel
   - charlesdong1991
   - dsaxton
+  - wesm
+  - gfyoung
+  - mzeitlin11
+  - twoertwein
 workgroups:
   coc:
     name: Code of Conduct
@@ -118,20 +121,18 @@ workgroups:
   finance:
     name: Finance
     contact: finance@pandas.pydata.org
-    responsibilities: "Approve the project expenses."
+    responsibilities: "Manage the funding. Coordinate the request of grants. Approve the project expenses."
     members:
-    - Wes McKinney
+    - Matthew Roeschke
     - Jeff Reback
     - Joris Van den Bossche
-    - Tom Augspurger
-    - Matthew Roeschke
+    - Patrick Hoefler
   infrastructure:
     name: Infrastructure
     contact: infrastructure@pandas.pydata.org
     responsibilities: "Keep the pandas infrastructure up and working. In particular the servers for the website, benchmarks, CI and others needed."
     members:
-    - Marc Garcia
-    - Matthew Roeschke
+    - William Ayd
     - Thomas Li
   communications:
     name: Communications
@@ -139,7 +140,6 @@ workgroups:
     responsibilities: "Share relevant information with the broader community, mainly via our social networks, as well as being the main point of contact between NumFOCUS and the core team."
     members:
     - Marco Gorelli
-    - Marc Garcia
 sponsors:
   active:
   - name: "NumFOCUS"

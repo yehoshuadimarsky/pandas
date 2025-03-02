@@ -6,6 +6,7 @@ import pandas._testing as tm
 from pandas.tests.base.common import allow_na_ops
 
 
+@pytest.mark.filterwarnings(r"ignore:PeriodDtype\[B\] is deprecated:FutureWarning")
 def test_unique(index_or_series_obj):
     obj = index_or_series_obj
     obj = np.repeat(obj, range(1, len(obj) + 1))
@@ -27,6 +28,7 @@ def test_unique(index_or_series_obj):
         tm.assert_numpy_array_equal(result, expected)
 
 
+@pytest.mark.filterwarnings(r"ignore:PeriodDtype\[B\] is deprecated:FutureWarning")
 @pytest.mark.parametrize("null_obj", [np.nan, None])
 def test_unique_null(null_obj, index_or_series_obj):
     obj = index_or_series_obj
@@ -100,7 +102,7 @@ def test_unique_bad_unicode(index_or_series):
     # regression test for #34550
     uval = "\ud83d"  # smiley emoji
 
-    obj = index_or_series([uval] * 2)
+    obj = index_or_series([uval] * 2, dtype=object)
     result = obj.unique()
 
     if isinstance(obj, pd.Index):
@@ -111,7 +113,6 @@ def test_unique_bad_unicode(index_or_series):
         tm.assert_numpy_array_equal(result, expected)
 
 
-@pytest.mark.parametrize("dropna", [True, False])
 def test_nunique_dropna(dropna):
     # GH37566
     ser = pd.Series(["yes", "yes", pd.NA, np.nan, None, pd.NaT])

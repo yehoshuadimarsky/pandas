@@ -35,7 +35,7 @@ These are some neat pandas ``idioms``
    )
    df
 
-if-then...
+If-then...
 **********
 
 An if-then on one column
@@ -176,7 +176,7 @@ One could hard code:
 Selection
 ---------
 
-Dataframes
+DataFrames
 **********
 
 The :ref:`indexing <indexing>` docs.
@@ -466,7 +466,7 @@ Unlike agg, apply's callable is passed a sub-DataFrame which gives you access to
 
 .. ipython:: python
 
-   gb = df.groupby(["animal"])
+   gb = df.groupby("animal")
    gb.get_group("cat")
 
 `Apply to different items in a group
@@ -530,7 +530,7 @@ Unlike agg, apply's callable is passed a sub-DataFrame which gives you access to
 
    code_groups = df.groupby("code")
 
-   agg_n_sort_order = code_groups[["data"]].transform(sum).sort_values(by="data")
+   agg_n_sort_order = code_groups[["data"]].transform("sum").sort_values(by="data")
 
    sorted_df = df.loc[agg_n_sort_order.index]
 
@@ -549,7 +549,7 @@ Unlike agg, apply's callable is passed a sub-DataFrame which gives you access to
            return x.iloc[1] * 1.234
        return pd.NaT
 
-   mhc = {"Mean": np.mean, "Max": np.max, "Custom": MyCust}
+   mhc = {"Mean": "mean", "Max": "max", "Custom": MyCust}
    ts.resample("5min").apply(mhc)
    ts
 
@@ -685,7 +685,7 @@ The :ref:`Pivot <reshaping.pivot>` docs.
        values=["Sales"],
        index=["Province"],
        columns=["City"],
-       aggfunc=np.sum,
+       aggfunc="sum",
        margins=True,
    )
    table.stack("City")
@@ -771,7 +771,7 @@ To create year and month cross tabulation:
 
    df = pd.DataFrame(
        {"value": np.random.randn(36)},
-       index=pd.date_range("2011-01-01", freq="M", periods=36),
+       index=pd.date_range("2011-01-01", freq="ME", periods=36),
    )
 
    pd.pivot_table(
@@ -794,12 +794,12 @@ Apply
        index=["I", "II", "III"],
    )
 
-   def make_df(ser):
-       new_vals = [pd.Series(value, name=name) for name, value in ser.items()]
-       return pd.DataFrame(new_vals)
+   def SeriesFromSubList(aList):
+       return pd.Series(aList)
 
-   df_orgz = pd.concat({ind: row.pipe(make_df) for ind, row in df.iterrows()})
-
+   df_orgz = pd.concat(
+       {ind: row.apply(SeriesFromSubList) for ind, row in df.iterrows()}
+   )
    df_orgz
 
 `Rolling apply with a DataFrame returning a Series
@@ -874,7 +874,7 @@ Timeseries
 <https://stackoverflow.com/questions/13893227/vectorized-look-up-of-values-in-pandas-dataframe>`__
 
 `Aggregation and plotting time series
-<https://nipunbatra.github.io/blog/visualisation/2013/05/01/aggregation-timeseries.html>`__
+<https://nipunbatra.github.io/blog/posts/2013-05-01-aggregation-timeseries.html>`__
 
 Turn a matrix with hours in columns and days in rows into a continuous row sequence in the form of a time series.
 `How to rearrange a Python pandas DataFrame?
@@ -914,7 +914,7 @@ Using TimeGrouper and another grouping to create subgroups, then apply a custom 
 <https://stackoverflow.com/questions/15408156/resampling-with-custom-periods>`__
 
 `Resample intraday frame without adding new days
-<https://stackoverflow.com/questions/14898574/resample-intrday-pandas-dataframe-without-add-new-days>`__
+<https://stackoverflow.com/questions/14898574/resample-intraday-pandas-dataframe-without-add-new-days>`__
 
 `Resample minute data
 <https://stackoverflow.com/questions/14861023/resampling-minute-data>`__
@@ -1043,7 +1043,7 @@ CSV
 
 The :ref:`CSV <io.read_csv_table>` docs
 
-`read_csv in action <https://wesmckinney.com/blog/update-on-upcoming-pandas-v0-10-new-file-parser-other-performance-wins/>`__
+`read_csv in action <https://www.datacamp.com/tutorial/pandas-read-csv>`__
 
 `appending to a csv
 <https://stackoverflow.com/questions/17134942/pandas-dataframe-output-end-of-csv>`__
@@ -1488,3 +1488,31 @@ of the data values:
        {"height": [60, 70], "weight": [100, 140, 180], "sex": ["Male", "Female"]}
    )
    df
+
+Constant Series
+---------------
+
+To assess if a series has a constant value, we can check if ``series.nunique() <= 1``.
+However, a more performant approach, that does not count all unique values first, is:
+
+.. ipython:: python
+
+   v = s.to_numpy()
+   is_constant = v.shape[0] == 0 or (s[0] == s).all()
+
+This approach assumes that the series does not contain missing values.
+For the case that we would drop NA values, we can simply remove those values first:
+
+.. ipython:: python
+
+   v = s.dropna().to_numpy()
+   is_constant = v.shape[0] == 0 or (s[0] == s).all()
+
+If missing values are considered distinct from any other value, then one could use:
+
+.. ipython:: python
+
+   v = s.to_numpy()
+   is_constant = v.shape[0] == 0 or (s[0] == s).all() or not pd.notna(v).any()
+
+(Note that this example does not disambiguate between ``np.nan``, ``pd.NA`` and ``None``)

@@ -42,7 +42,10 @@ class TestTimedeltaIndex:
         tm.assert_index_equal(result, expected)
 
     def test_union_coverage(self):
-        idx = TimedeltaIndex(["3d", "1d", "2d"])
+        # GH#59051
+        msg = "'d' is deprecated and will be removed in a future version."
+        with tm.assert_produces_warning(FutureWarning, match=msg):
+            idx = TimedeltaIndex(["3d", "1d", "2d"])
         ordered = TimedeltaIndex(idx.sort_values(), freq="infer")
         result = ordered.union(idx)
         tm.assert_index_equal(result, ordered)
@@ -52,8 +55,8 @@ class TestTimedeltaIndex:
         assert result.freq == ordered.freq
 
     def test_union_bug_1730(self):
-        rng_a = timedelta_range("1 day", periods=4, freq="3H")
-        rng_b = timedelta_range("1 day", periods=4, freq="4H")
+        rng_a = timedelta_range("1 day", periods=4, freq="3h")
+        rng_b = timedelta_range("1 day", periods=4, freq="4h")
 
         result = rng_a.union(rng_b)
         exp = TimedeltaIndex(sorted(set(rng_a) | set(rng_b)))
@@ -70,7 +73,7 @@ class TestTimedeltaIndex:
         tm.assert_index_equal(result, exp)
 
     def test_union_bug_4564(self):
-        left = timedelta_range("1 day", "30d")
+        left = timedelta_range("1 day", "30D")
         right = left + pd.offsets.Minute(15)
 
         result = left.union(right)
@@ -115,7 +118,7 @@ class TestTimedeltaIndex:
         intersect = first.intersection(second, sort=sort)
         if sort is None:
             tm.assert_index_equal(intersect, second.sort_values())
-        assert tm.equalContents(intersect, second)
+        tm.assert_index_equal(intersect, second)
 
         # Corner cases
         inter = first.intersection(first, sort=sort)
@@ -219,9 +222,11 @@ class TestTimedeltaIndexDifference:
         tm.assert_index_equal(idx_diff, expected)
         tm.assert_attr_equal("freq", idx_diff, expected)
 
+        # preserve frequency when the difference is a contiguous
+        # subset of the original range
         other = timedelta_range("2 days", "5 days", freq="D")
         idx_diff = index.difference(other, sort)
-        expected = TimedeltaIndex(["0 days", "1 days"], freq=None)
+        expected = TimedeltaIndex(["0 days", "1 days"], freq="D")
         tm.assert_index_equal(idx_diff, expected)
         tm.assert_attr_equal("freq", idx_diff, expected)
 

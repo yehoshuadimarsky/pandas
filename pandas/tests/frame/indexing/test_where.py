@@ -24,7 +24,9 @@ from pandas._testing._hypothesis import OPTIONAL_ONE_OF_ALL
 @pytest.fixture(params=["default", "float_string", "mixed_float", "mixed_int"])
 def where_frame(request, float_string_frame, mixed_float_frame, mixed_int_frame):
     if request.param == "default":
-        return DataFrame(np.random.randn(5, 3), columns=["A", "B", "C"])
+        return DataFrame(
+            np.random.default_rng(2).standard_normal((5, 3)), columns=["A", "B", "C"]
+        )
     if request.param == "float_string":
         return float_string_frame
     if request.param == "mixed_float":
@@ -61,7 +63,10 @@ class TestDataFrameIndexingWhere:
         # check getting
         df = where_frame
         if df is float_string_frame:
-            msg = "'>' not supported between instances of 'str' and 'int'"
+            msg = (
+                "'>' not supported between instances of 'str' and 'int'"
+                "|Invalid comparison"
+            )
             with pytest.raises(TypeError, match=msg):
                 df > 0
             return
@@ -125,7 +130,10 @@ class TestDataFrameIndexingWhere:
 
         df = where_frame
         if df is float_string_frame:
-            msg = "'>' not supported between instances of 'str' and 'int'"
+            msg = (
+                "'>' not supported between instances of 'str' and 'int'"
+                "|Invalid comparison"
+            )
             with pytest.raises(TypeError, match=msg):
                 df > 0
             return
@@ -143,9 +151,13 @@ class TestDataFrameIndexingWhere:
         check_dtypes = all(not issubclass(s.type, np.integer) for s in df.dtypes)
         _check_align(df, cond, np.nan, check_dtypes=check_dtypes)
 
+    # Ignore deprecation warning in Python 3.12 for inverting a bool
+    @pytest.mark.filterwarnings("ignore::DeprecationWarning")
     def test_where_invalid(self):
         # invalid conditions
-        df = DataFrame(np.random.randn(5, 3), columns=["A", "B", "C"])
+        df = DataFrame(
+            np.random.default_rng(2).standard_normal((5, 3)), columns=["A", "B", "C"]
+        )
         cond = df > 0
 
         err1 = (df + 1).values[0:2, :]
@@ -164,12 +176,12 @@ class TestDataFrameIndexingWhere:
         with pytest.raises(ValueError, match=msg):
             df.mask(0)
 
-    def test_where_set(self, where_frame, float_string_frame):
+    def test_where_set(self, where_frame, float_string_frame, mixed_int_frame):
         # where inplace
 
         def _check_set(df, cond, check_dtypes=True):
             dfi = df.copy()
-            econd = cond.reindex_like(df).fillna(True)
+            econd = cond.reindex_like(df).fillna(True).infer_objects()
             expected = dfi.mask(~econd)
 
             return_value = dfi.where(cond, np.nan, inplace=True)
@@ -185,10 +197,15 @@ class TestDataFrameIndexingWhere:
 
         df = where_frame
         if df is float_string_frame:
-            msg = "'>' not supported between instances of 'str' and 'int'"
+            msg = (
+                "'>' not supported between instances of 'str' and 'int'"
+                "|Invalid comparison"
+            )
             with pytest.raises(TypeError, match=msg):
                 df > 0
             return
+        if df is mixed_int_frame:
+            df = df.astype("float64")
 
         cond = df > 0
         _check_set(df, cond)
@@ -240,7 +257,7 @@ class TestDataFrameIndexingWhere:
         df = DataFrame({"a": [1, 2, 3]})
         msg = "Boolean array expected for the condition"
 
-        with pytest.raises(ValueError, match=msg):
+        with pytest.raises(TypeError, match=msg):
             df.where(cond)
 
     @pytest.mark.parametrize(
@@ -262,7 +279,7 @@ class TestDataFrameIndexingWhere:
         df = DataFrame({"a": [1, 2, 3], "b": [2, 2, 2]})
         msg = "Boolean array expected for the condition"
 
-        with pytest.raises(ValueError, match=msg):
+        with pytest.raises(TypeError, match=msg):
             df.where(cond)
 
     def test_where_dataframe_col_match(self):
@@ -347,6 +364,7 @@ class TestDataFrameIndexingWhere:
 
         expected = a.copy()
         expected[~do_not_replace] = b
+        expected[[0, 1]] = expected[[0, 1]].astype("float64")
 
         result = a.where(do_not_replace, b)
         tm.assert_frame_equal(result, expected)
@@ -357,6 +375,7 @@ class TestDataFrameIndexingWhere:
 
         expected = a.copy()
         expected[~do_not_replace] = b
+        expected[1] = expected[1].astype("float64")
 
         result = a.where(do_not_replace, b)
         tm.assert_frame_equal(result, expected)
@@ -367,7 +386,7 @@ class TestDataFrameIndexingWhere:
             {
                 "A": date_range("20130102", periods=5),
                 "B": date_range("20130104", periods=5),
-                "C": np.random.randn(5),
+                "C": np.random.default_rng(2).standard_normal(5),
             }
         )
 
@@ -430,7 +449,7 @@ class TestDataFrameIndexingWhere:
 
     def test_where_align(self):
         def create():
-            df = DataFrame(np.random.randn(10, 3))
+            df = DataFrame(np.random.default_rng(2).standard_normal((10, 3)))
             df.iloc[3:5, 0] = np.nan
             df.iloc[4:6, 1] = np.nan
             df.iloc[5:8, 2] = np.nan
@@ -470,7 +489,7 @@ class TestDataFrameIndexingWhere:
 
     def test_where_axis(self):
         # GH 9736
-        df = DataFrame(np.random.randn(2, 2))
+        df = DataFrame(np.random.default_rng(2).standard_normal((2, 2)))
         mask = DataFrame([[False, False], [False, False]])
         ser = Series([0, 1])
 
@@ -503,31 +522,25 @@ class TestDataFrameIndexingWhere:
         tm.assert_frame_equal(result, expected)
 
         result = df.copy()
-        return_value = result.where(mask, ser, axis="index", inplace=True)
-        assert return_value is None
-        tm.assert_frame_equal(result, expected)
+        with pytest.raises(TypeError, match="Invalid value"):
+            result.where(mask, ser, axis="index", inplace=True)
 
         expected = DataFrame([[0, np.nan], [0, np.nan]])
         result = df.where(mask, ser, axis="columns")
         tm.assert_frame_equal(result, expected)
 
-        expected = DataFrame(
-            {
-                0: np.array([0, 0], dtype="int64"),
-                1: np.array([np.nan, np.nan], dtype="float64"),
-            }
-        )
-        result = df.copy()
-        return_value = result.where(mask, ser, axis="columns", inplace=True)
-        assert return_value is None
-        tm.assert_frame_equal(result, expected)
+        with pytest.raises(TypeError, match="Invalid value"):
+            df.where(mask, ser, axis="columns", inplace=True)
 
     def test_where_axis_multiple_dtypes(self):
         # Multiple dtypes (=> multiple Blocks)
         df = pd.concat(
             [
-                DataFrame(np.random.randn(10, 2)),
-                DataFrame(np.random.randint(0, 10, size=(10, 2)), dtype="int64"),
+                DataFrame(np.random.default_rng(2).standard_normal((10, 2))),
+                DataFrame(
+                    np.random.default_rng(2).integers(0, 10, size=(10, 2)),
+                    dtype="int64",
+                ),
             ],
             ignore_index=True,
             axis=1,
@@ -569,13 +582,10 @@ class TestDataFrameIndexingWhere:
         result = df.where(mask, d1, axis="index")
         tm.assert_frame_equal(result, expected)
         result = df.copy()
-        return_value = result.where(mask, d1, inplace=True)
-        assert return_value is None
-        tm.assert_frame_equal(result, expected)
-        result = df.copy()
-        return_value = result.where(mask, d1, inplace=True, axis="index")
-        assert return_value is None
-        tm.assert_frame_equal(result, expected)
+        with pytest.raises(TypeError, match="Invalid value"):
+            result.where(mask, d1, inplace=True)
+        with pytest.raises(TypeError, match="Invalid value"):
+            return_value = result.where(mask, d1, inplace=True, axis="index")
 
         d2 = df.copy().drop(1, axis=1)
         expected = df.copy()
@@ -697,12 +707,11 @@ class TestDataFrameIndexingWhere:
 
         # TODO: ideally we would get Int64 instead of object
         result = df.where(mask, ser, axis=0)
-        expected = DataFrame({"A": [1, pd.NA, 3], "B": [4, pd.NA, 6]}).astype(object)
+        expected = DataFrame({"A": [1, np.nan, 3], "B": [4, np.nan, 6]})
         tm.assert_frame_equal(result, expected)
 
         ser2 = Series(arr[:2], index=["A", "B"])
-        expected = DataFrame({"A": [1, 7, 3], "B": [4, pd.NA, 6]})
-        expected["B"] = expected["B"].astype(object)
+        expected = DataFrame({"A": [1, 7, 3], "B": [4, np.nan, 6]})
         result = df.where(mask, ser2, axis=1)
         tm.assert_frame_equal(result, expected)
 
@@ -719,16 +728,12 @@ class TestDataFrameIndexingWhere:
     def test_where_interval_fullop_downcast(self, frame_or_series):
         # GH#45768
         obj = frame_or_series([pd.Interval(0, 0)] * 2)
-        other = frame_or_series([1.0, 2.0])
+        other = frame_or_series([1.0, 2.0], dtype=object)
         res = obj.where(~obj.notna(), other)
+        tm.assert_equal(res, other)
 
-        # since all entries are being changed, we will downcast result
-        #  from object to ints (not floats)
-        tm.assert_equal(res, other.astype(np.int64))
-
-        # unlike where, Block.putmask does not downcast
-        obj.mask(obj.notna(), other, inplace=True)
-        tm.assert_equal(obj, other.astype(object))
+        with pytest.raises(TypeError, match="Invalid value"):
+            obj.mask(obj.notna(), other, inplace=True)
 
     @pytest.mark.parametrize(
         "dtype",
@@ -736,14 +741,13 @@ class TestDataFrameIndexingWhere:
             "timedelta64[ns]",
             "datetime64[ns]",
             "datetime64[ns, Asia/Tokyo]",
-            "Period[D]",
         ],
     )
     def test_where_datetimelike_noop(self, dtype):
         # GH#45135, analogue to GH#44181 for Period don't raise on no-op
         # For td64/dt64/dt64tz we already don't raise, but also are
         #  checking that we don't unnecessarily upcast to object.
-        ser = Series(np.arange(3) * 10**9, dtype=np.int64).view(dtype)
+        ser = Series(np.arange(3) * 10**9, dtype=np.int64).astype(dtype)
         df = ser.to_frame()
         mask = np.array([False, False, False])
 
@@ -760,15 +764,9 @@ class TestDataFrameIndexingWhere:
         res4 = df.mask(mask2, "foo")
         tm.assert_frame_equal(res4, df)
 
-        # opposite case where we are replacing *all* values -> we downcast
-        #  from object dtype # GH#45768
-        res5 = df.where(mask2, 4)
-        expected = DataFrame(4, index=df.index, columns=df.columns)
-        tm.assert_frame_equal(res5, expected)
-
         # unlike where, Block.putmask does not downcast
-        df.mask(~mask2, 4, inplace=True)
-        tm.assert_frame_equal(df, expected.astype(object))
+        with pytest.raises(TypeError, match="Invalid value"):
+            df.mask(~mask2, 4, inplace=True)
 
 
 def test_where_int_downcasting_deprecated():
@@ -922,8 +920,8 @@ def test_where_period_invalid_na(frame_or_series, as_cat, request):
         result = obj.mask(mask, tdnat)
         tm.assert_equal(result, expected)
 
-        obj.mask(mask, tdnat, inplace=True)
-        tm.assert_equal(obj, expected)
+        with pytest.raises(TypeError, match="Invalid value"):
+            obj.mask(mask, tdnat, inplace=True)
 
 
 def test_where_nullable_invalid_na(frame_or_series, any_numeric_ea_dtype):
@@ -933,7 +931,7 @@ def test_where_nullable_invalid_na(frame_or_series, any_numeric_ea_dtype):
 
     mask = np.array([True, True, False], ndmin=obj.ndim).T
 
-    msg = r"Invalid value '.*' for dtype (U?Int|Float)\d{1,2}"
+    msg = r"Invalid value '.*' for dtype '(U?Int|Float)\d{1,2}'"
 
     for null in tm.NP_NAT_OBJECTS + [pd.NaT]:
         # NaT is an NA value that we should *not* cast to pd.NA dtype
@@ -959,10 +957,11 @@ def test_where_downcast_to_td64():
     mask = np.array([False, False, False])
 
     td = pd.Timedelta(days=1)
-
-    res = ser.where(mask, td)
     expected = Series([td, td, td], dtype="m8[ns]")
-    tm.assert_series_equal(res, expected)
+
+    res2 = ser.where(mask, td)
+    expected2 = expected.astype(object)
+    tm.assert_series_equal(res2, expected2)
 
 
 def _check_where_equivalences(df, mask, other, expected):
@@ -996,10 +995,6 @@ def test_where_dt64_2d():
     mask = np.asarray(df.isna()).copy()
     mask[:, 1] = True
 
-    # setting all of one column, none of the other
-    expected = DataFrame({"A": other[:, 0], "B": dta[:, 1]})
-    _check_where_equivalences(df, mask, other, expected)
-
     # setting part of one column, none of the other
     mask[1, 0] = True
     expected = DataFrame(
@@ -1008,7 +1003,8 @@ def test_where_dt64_2d():
             "B": dta[:, 1],
         }
     )
-    _check_where_equivalences(df, mask, other, expected)
+    with pytest.raises(TypeError, match="Invalid value"):
+        _check_where_equivalences(df, mask, other, expected)
 
     # setting nothing in either column
     mask[:] = True

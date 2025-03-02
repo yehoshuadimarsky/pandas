@@ -155,17 +155,6 @@ speedups. ``numexpr`` uses smart chunking, caching, and multiple cores. ``bottle
 a set of specialized cython routines that are especially fast when dealing with arrays that have
 ``nans``.
 
-Here is a sample (using 100 column x 100,000 row ``DataFrames``):
-
-.. csv-table::
-    :header: "Operation", "0.11.0 (ms)", "Prior Version (ms)", "Ratio to Prior"
-    :widths: 25, 25, 25, 25
-    :delim: ;
-
-    ``df1 > df2``; 13.32; 125.35;  0.1063
-    ``df1 * df2``; 21.71;  36.63;  0.5928
-    ``df1 + df2``; 22.04;  36.50;  0.6039
-
 You are highly encouraged to install both libraries. See the section
 :ref:`Recommended Dependencies <install.recommended_dependencies>` for more installation info.
 
@@ -220,11 +209,6 @@ either match on the *index* or *columns* via the **axis** keyword:
    df.sub(column, axis="index")
    df.sub(column, axis=0)
 
-.. ipython:: python
-   :suppress:
-
-   df_orig = df
-
 Furthermore you can align a level of a MultiIndexed DataFrame with a Series.
 
 .. ipython:: python
@@ -272,13 +256,9 @@ case the result will be NaN (you can later replace NaN with some other value
 using ``fillna`` if you wish).
 
 .. ipython:: python
-   :suppress:
 
    df2 = df.copy()
-   df2["three"]["a"] = 1.0
-
-.. ipython:: python
-
+   df2.loc["a", "three"] = 1.0
    df
    df2
    df + df2
@@ -308,8 +288,7 @@ Boolean reductions
 ~~~~~~~~~~~~~~~~~~
 
 You can apply the reductions: :attr:`~DataFrame.empty`, :meth:`~DataFrame.any`,
-:meth:`~DataFrame.all`, and :meth:`~DataFrame.bool` to provide a
-way to summarize a boolean result.
+:meth:`~DataFrame.all`.
 
 .. ipython:: python
 
@@ -331,24 +310,21 @@ You can test if a pandas object is empty, via the :attr:`~DataFrame.empty` prope
 
 .. warning::
 
-   You might be tempted to do the following:
+   Asserting the truthiness of a pandas object will raise an error, as the testing of the emptiness
+   or values is ambiguous.
 
-   .. code-block:: python
+   .. ipython:: python
+      :okexcept:
 
-      >>> if df:
-      ...     pass
+      if df:
+          print(True)
 
-   Or
+   .. ipython:: python
+      :okexcept:
 
-   .. code-block:: python
+      df and df2
 
-      >>> df and df2
-
-   These will both raise errors, as you are trying to compare multiple values.::
-
-       ValueError: The truth value of an array is ambiguous. Use a.empty, a.any() or a.all().
-
-See :ref:`gotchas<gotchas.truth>` for a more detailed discussion.
+   See :ref:`gotchas<gotchas.truth>` for a more detailed discussion.
 
 .. _basics.equals:
 
@@ -413,27 +389,12 @@ objects of the same length:
 Trying to compare ``Index`` or ``Series`` objects of different lengths will
 raise a ValueError:
 
-.. code-block:: ipython
-
-    In [55]: pd.Series(['foo', 'bar', 'baz']) == pd.Series(['foo', 'bar'])
-    ValueError: Series lengths must match to compare
-
-    In [56]: pd.Series(['foo', 'bar', 'baz']) == pd.Series(['foo'])
-    ValueError: Series lengths must match to compare
-
-Note that this is different from the NumPy behavior where a comparison can
-be broadcast:
-
 .. ipython:: python
+   :okexcept:
 
-    np.array([1, 2, 3]) == np.array([2])
+    pd.Series(['foo', 'bar', 'baz']) == pd.Series(['foo', 'bar'])
 
-or it can return False if broadcasting can not be done:
-
-.. ipython:: python
-   :okwarning:
-
-    np.array([1, 2, 3]) == np.array([1, 2])
+    pd.Series(['foo', 'bar', 'baz']) == pd.Series(['foo'])
 
 Combining overlapping data sets
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -504,15 +465,15 @@ For example:
 .. ipython:: python
 
    df
-   df.mean(0)
-   df.mean(1)
+   df.mean(axis=0)
+   df.mean(axis=1)
 
 All such methods have a ``skipna`` option signaling whether to exclude missing
 data (``True`` by default):
 
 .. ipython:: python
 
-   df.sum(0, skipna=False)
+   df.sum(axis=0, skipna=False)
    df.sum(axis=1, skipna=True)
 
 Combined with the broadcasting / arithmetic behavior, one can describe various
@@ -523,8 +484,8 @@ standard deviation of 1), very concisely:
 
    ts_stand = (df - df.mean()) / df.std()
    ts_stand.std()
-   xs_stand = df.sub(df.mean(1), axis=0).div(df.std(1), axis=0)
-   xs_stand.std(1)
+   xs_stand = df.sub(df.mean(axis=1), axis=0).div(df.std(axis=1), axis=0)
+   xs_stand.std(axis=1)
 
 Note that methods like :meth:`~DataFrame.cumsum` and :meth:`~DataFrame.cumprod`
 preserve the location of ``NaN`` values. This is somewhat different from
@@ -881,8 +842,8 @@ statistics methods, takes an optional ``axis`` argument:
 
 .. ipython:: python
 
-   df.apply(np.mean)
-   df.apply(np.mean, axis=1)
+   df.apply(lambda x: np.mean(x))
+   df.apply(lambda x: np.mean(x), axis=1)
    df.apply(lambda x: x.max() - x.min())
    df.apply(np.cumsum)
    df.apply(np.exp)
@@ -919,24 +880,20 @@ maximum value for each column occurred:
    tsdf.apply(lambda x: x.idxmax())
 
 You may also pass additional arguments and keyword arguments to the :meth:`~DataFrame.apply`
-method. For instance, consider the following function you would like to apply:
+method.
 
-.. code-block:: python
+.. ipython:: python
 
    def subtract_and_divide(x, sub, divide=1):
        return (x - sub) / divide
 
-You may then apply this function as follows:
-
-.. code-block:: python
-
-   df.apply(subtract_and_divide, args=(5,), divide=3)
+   df_udf = pd.DataFrame(np.ones((2, 2)))
+   df_udf.apply(subtract_and_divide, args=(5,), divide=3)
 
 Another useful feature is the ability to pass Series methods to carry out some
 Series operation on each column or row:
 
 .. ipython:: python
-   :suppress:
 
    tsdf = pd.DataFrame(
        np.random.randn(10, 3),
@@ -944,9 +901,6 @@ Series operation on each column or row:
        index=pd.date_range("1/1/2000", periods=10),
    )
    tsdf.iloc[3:7] = np.nan
-
-.. ipython:: python
-
    tsdf
    tsdf.apply(pd.Series.interpolate)
 
@@ -986,7 +940,7 @@ output:
 
 .. ipython:: python
 
-   tsdf.agg(np.sum)
+   tsdf.agg(lambda x: np.sum(x))
 
    tsdf.agg("sum")
 
@@ -1171,12 +1125,8 @@ and analogously :meth:`~Series.map` on Series accept any Python function taking
 a single value and returning a single value. For example:
 
 .. ipython:: python
-   :suppress:
 
-   df4 = df_orig.copy()
-
-.. ipython:: python
-
+   df4 = df.copy()
    df4
 
    def f(x):
@@ -1280,14 +1230,9 @@ is a common enough operation that the :meth:`~DataFrame.reindex_like` method is
 available to make this simpler:
 
 .. ipython:: python
-   :suppress:
 
    df2 = df.reindex(["a", "b", "c"], columns=["one", "two"])
    df3 = df2 - df2.mean()
-
-
-.. ipython:: python
-
    df2
    df3
    df.reindex_like(df2)
@@ -1352,8 +1297,8 @@ filling method chosen from the following table:
     :header: "Method", "Action"
     :widths: 30, 50
 
-    pad / ffill, Fill values forward
-    bfill / backfill, Fill values backward
+    ffill, Fill values forward
+    bfill, Fill values backward
     nearest, Fill from the nearest index value
 
 We illustrate these fill methods on a simple Series:
@@ -1651,7 +1596,7 @@ For instance:
 This method does not convert the row to a Series object; it merely
 returns the values inside a namedtuple. Therefore,
 :meth:`~DataFrame.itertuples` preserves the data type of the values
-and is generally faster as :meth:`~DataFrame.iterrows`.
+and is generally faster than :meth:`~DataFrame.iterrows`.
 
 .. note::
 
@@ -2050,7 +1995,7 @@ documentation sections for more on each type.
 |                                                 |                           |                    |                               | ``'Int64'``, ``'UInt8'``, ``'UInt16'``,|
 |                                                 |                           |                    |                               | ``'UInt32'``, ``'UInt64'``             |
 +-------------------------------------------------+---------------------------+--------------------+-------------------------------+----------------------------------------+
-| ``nullable float``                              | :class:`Float64Dtype`, ...| (none)             | :class:`arrays.FloatingArray` | ``'Float32'``, ``'Float64'``           |
+| :ref:`nullable float <api.arrays.float_na>`     | :class:`Float64Dtype`, ...| (none)             | :class:`arrays.FloatingArray` | ``'Float32'``, ``'Float64'``           |
 +-------------------------------------------------+---------------------------+--------------------+-------------------------------+----------------------------------------+
 | :ref:`Strings <text>`                           | :class:`StringDtype`      | :class:`str`       | :class:`arrays.StringArray`   | ``'string'``                           |
 +-------------------------------------------------+---------------------------+--------------------+-------------------------------+----------------------------------------+
@@ -2303,23 +2248,6 @@ non-conforming elements intermixed that you want to represent as missing:
 
     m = ["apple", pd.Timedelta("1day")]
     pd.to_timedelta(m, errors="coerce")
-
-The ``errors`` parameter has a third option of ``errors='ignore'``, which will simply return the passed in data if it
-encounters any errors with the conversion to a desired data type:
-
-.. ipython:: python
-    :okwarning:
-
-    import datetime
-
-    m = ["apple", datetime.datetime(2016, 3, 2)]
-    pd.to_datetime(m, errors="ignore")
-
-    m = ["apple", 2, 3]
-    pd.to_numeric(m, errors="ignore")
-
-    m = ["apple", pd.Timedelta("1day")]
-    pd.to_timedelta(m, errors="ignore")
 
 In addition to object conversion, :meth:`~pandas.to_numeric` provides another argument ``downcast``, which gives the
 option of downcasting the newly (or already) numeric data to a smaller dtype, which can conserve memory:

@@ -1,4 +1,4 @@
-""" generic datetimelike tests """
+"""generic datetimelike tests"""
 
 import numpy as np
 import pytest
@@ -85,13 +85,15 @@ class TestDatetimeLike:
     def test_view(self, simple_index):
         idx = simple_index
 
-        idx_view = idx.view("i8")
         result = type(simple_index)(idx)
         tm.assert_index_equal(result, idx)
 
-        idx_view = idx.view(type(simple_index))
-        result = type(simple_index)(idx)
-        tm.assert_index_equal(result, idx_view)
+        msg = (
+            "Cannot change data-type for array of references.|"
+            "Cannot change data-type for object array.|"
+        )
+        with pytest.raises(TypeError, match=msg):
+            idx.view(type(simple_index))
 
     def test_map_callable(self, simple_index):
         index = simple_index
@@ -111,6 +113,7 @@ class TestDatetimeLike:
             lambda values, index: pd.Series(values, index, dtype=object),
         ],
     )
+    @pytest.mark.filterwarnings(r"ignore:PeriodDtype\[B\] is deprecated:FutureWarning")
     def test_map_dictlike(self, mapper, simple_index):
         index = simple_index
         expected = index + index.freq
@@ -157,4 +160,11 @@ class TestDatetimeLike:
         tm.assert_index_equal(result, expected)
 
         result = index.where(mask, ["foo"])
+        tm.assert_index_equal(result, expected)
+
+    def test_diff(self, unit):
+        # GH 55080
+        dti = pd.to_datetime([10, 20, 30], unit=unit).as_unit(unit)
+        result = dti.diff(1)
+        expected = pd.to_timedelta([pd.NaT, 10, 10], unit=unit).as_unit(unit)
         tm.assert_index_equal(result, expected)

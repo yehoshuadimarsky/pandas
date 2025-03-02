@@ -18,14 +18,14 @@ import pandas._testing as tm
 
 class TestDataFrameMask:
     def test_mask(self):
-        df = DataFrame(np.random.randn(5, 3))
+        df = DataFrame(np.random.default_rng(2).standard_normal((5, 3)))
         cond = df > 0
 
         rs = df.where(cond, np.nan)
         tm.assert_frame_equal(rs, df.mask(df <= 0))
         tm.assert_frame_equal(rs, df.mask(~cond))
 
-        other = DataFrame(np.random.randn(5, 3))
+        other = DataFrame(np.random.default_rng(2).standard_normal((5, 3)))
         rs = df.where(cond, other)
         tm.assert_frame_equal(rs, df.mask(df <= 0, other))
         tm.assert_frame_equal(rs, df.mask(~cond, other))
@@ -40,7 +40,7 @@ class TestDataFrameMask:
 
     def test_mask_inplace(self):
         # GH#8801
-        df = DataFrame(np.random.randn(5, 3))
+        df = DataFrame(np.random.default_rng(2).standard_normal((5, 3)))
         cond = df > 0
 
         rdf = df.copy()
@@ -85,7 +85,7 @@ class TestDataFrameMask:
 
     def test_mask_dtype_bool_conversion(self):
         # GH#3733
-        df = DataFrame(data=np.random.randn(100, 50))
+        df = DataFrame(data=np.random.default_rng(2).standard_normal((100, 50)))
         df = df.where(df > 0)  # create nans
         bools = df > 0
         mask = isna(df)
@@ -122,7 +122,7 @@ def test_mask_stringdtype(frame_or_series):
 
 def test_mask_where_dtype_timedelta():
     # https://github.com/pandas-dev/pandas/issues/39548
-    df = DataFrame([Timedelta(i, unit="d") for i in range(5)])
+    df = DataFrame([Timedelta(i, unit="D") for i in range(5)])
 
     expected = DataFrame(np.full(5, np.nan, dtype="timedelta64[ns]"))
     tm.assert_frame_equal(df.mask(df.notna()), expected)
@@ -130,7 +130,7 @@ def test_mask_where_dtype_timedelta():
     expected = DataFrame(
         [np.nan, np.nan, np.nan, Timedelta("3 day"), Timedelta("4 day")]
     )
-    tm.assert_frame_equal(df.where(df > Timedelta(2, unit="d")), expected)
+    tm.assert_frame_equal(df.where(df > Timedelta(2, unit="D")), expected)
 
 
 def test_mask_return_dtype():
